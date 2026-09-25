@@ -1,0 +1,9 @@
+<system>
+  <name>lgpt</name>
+  <fullname>LittleGPTracker</fullname>
+  <path>/roms/lgpt</path>
+  <extension>.lgpt</extension>
+  <command>/roms/ports/lgpt/lgpt.sh %ROM%</command>
+  <platform>pc</platform>
+  <theme>ports</theme>
+</system>

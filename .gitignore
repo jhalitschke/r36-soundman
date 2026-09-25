@@ -1,0 +1,8 @@
+device/*/
+!device/.gitkeep
+cores/*/libADLMIDI/
+cores/*/*.so
+ports/picoloop/src/
+ports/picoloop/picoloop
+ports/picoloop/lib/
+*.o

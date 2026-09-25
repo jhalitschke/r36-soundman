@@ -1,0 +1,9 @@
+<system>
+  <name>synth</name>
+  <fullname>Synth (FluidSynth)</fullname>
+  <path>/roms/synth</path>
+  <extension>.sf2 .SF2</extension>
+  <command>/roms/ports/synth/fluidsynth.sh %ROM%</command>
+  <platform>pc</platform>
+  <theme>ports</theme>
+</system>

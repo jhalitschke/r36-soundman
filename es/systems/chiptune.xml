@@ -1,0 +1,9 @@
+<system>
+  <name>chiptune</name>
+  <fullname>Chiptune (Game Music Emu)</fullname>
+  <path>/roms/chiptune</path>
+  <extension>.nsf .nsfe .spc .vgm .vgz .gbs .gym .sap .hes .kss .ay</extension>
+  <command>{{RA}} -L {{CORES}}/gme_libretro.so %ROM%</command>
+  <platform>pc</platform>
+  <theme>ports</theme>
+</system>

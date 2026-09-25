@@ -1,0 +1,13 @@
+# gptokeyb-Mapping nach PocketCHIP-Belegung von Picoloop
+up = up
+down = down
+left = left
+right = right
+a = rightshift
+b = rightctrl
+x = tab
+y = backspace
+start = enter
+select = esc
+l1 = pageup
+r1 = pagedown

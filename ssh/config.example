@@ -1,0 +1,8 @@
+# nach ~/.ssh/config kopieren (oder: Include ~/Projects/r36-soundman/ssh/config)
+Host r36a
+    HostName 192.168.7.1
+    User ark
+Host r36b
+    HostName 192.168.7.1
+    User ark
+# nach Phase 1 (USB-Ethernet am OTG-Hub) HostName auf die DHCP-IP oder r36a.local ändern
