@@ -49,7 +49,8 @@ Entwicklung läuft komplett vom Host (Ubuntu, alternativ macOS) per SSH; auf dem
 ## Status
 
 - Fertig, ungetestet auf Hardware: alle Scripts, ES-Fragmente, Port-Scripts, `cores/adl`.
-- `cores/adl` ist auf x86 gebaut und per Harness geprüft (Bank laden, Noten via FIFO, Audio-Energie, Note-Off → Stille).
+- `cores/adl` ist auf x86 gebaut und per Harness (`scripts/adl_harness.py`) geprüft: Bank laden, Noten via FIFO,
+  Tonhöhe, Note-Off → Stille, Pegel. Läuft in CI mit, Demo-WAV als Artefakt.
 - Offen: Makefile-Name im Picoloop-Repo (`ports/picoloop/build.sh` listet Kandidaten), `LGPT_BIN`-Pfad
   (`ports/lgpt/lgpt.sh`), `gme_libretro.so` arm64 beschaffen (`cores/gme/`), Theme-Logos.
 - Nächste Engines nach `adl`: `opn` (libOPNMIDI, `.wopn`), `mt32` (mt32emu, ROMs in RetroArch `system/`).

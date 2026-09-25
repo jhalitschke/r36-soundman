@@ -7,3 +7,4 @@ ports/picoloop/picoloop
 ports/picoloop/lib/
 *.o
 __pycache__/
+*.wav

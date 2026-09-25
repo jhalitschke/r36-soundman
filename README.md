@@ -101,14 +101,34 @@ Ohne Gerät prüfbar, gleiche Schritte wie in `.github/workflows/ci.yml`:
 
     for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
     shellcheck --severity=warning scripts/*.sh ports/*/*.sh
-    python3 -m unittest discover -s tests          # es-merge.py + ES-Fragmente
     make -C cores/adl                              # x86-Compile-Check (nicht fürs Gerät)
     python3 tests/core_smoke.py cores/adl/adl_libretro.so
+    python3 -m unittest discover -s tests          # es-merge.py, ES-Fragmente, Core-Audio
 
 `core_smoke.py` lädt die `.so` per ctypes und prüft libretro-API, Pflichtsymbole,
 48 kHz / 60 fps / 320x240 und ob die `.info` zu den Angaben des Cores passt.
+Die Audio-Tests brauchen die gebaute `.so` und werden sonst übersprungen.
 Der arm64-Build (`scripts/build.sh adl`) läuft in CI nur per *Run workflow* – qemu ist zu langsam
-für jeden Push.
+für jeden Push. Jeder CI-Lauf legt `adl-demo.wav` als Artefakt ab: Änderungen am Core sind hörbar,
+nicht nur grün.
+
+## Harness: den Core ohne RetroArch hören
+
+`scripts/adl_harness.py` fährt einen gebauten Core selbst – Callbacks per ctypes, MIDI über eine
+FIFO als `ADL_MIDI_DEV`, Audio in eine WAV. Damit sind Bank, MIDI-Parser, Tonhöhe, Note-Off und
+Pegel auf dem Host prüfbar, bevor irgendwas aufs Gerät geht:
+
+    make -C cores/adl
+    scripts/adl_harness.py --demo demo.wav        # 6 Takte, 120 bpm, Lead/Bass/Pad/Drums
+    scripts/adl_harness.py --ton 69 a4.wav        # Einzelnote, misst die Grundfrequenz
+
+Gemessen (DOSBox-Emulator, eingebettete Bank 0, ein Chip): Tonhöhe über vier Oktaven auf 0,1 %
+genau, Note-On bis erstes Sample 2,96 ms (OPL3-Attack; MIDI wird einmal pro `retro_run` gepollt,
+also plus 0–16,7 ms Quantisierung), Demo mit vier Stimmen bei Gain 6 auf -5,9 dBFS ohne Clipping.
+
+**Pegel:** `adl_generate` liefert rund 20 dB unter Vollaussteuerung (Einzelnote -33 dBFS; auch das
+lauteste der 15 Volume-Modelle von libADLMIDI bringt nur -24 dBFS). Der Core verstärkt darum am
+Ausgang fest mit Sättigung, Standard 6 (+15,6 dB), umstellbar über `ADL_GAIN=1..64`.
 
 ## Checkpoints
 

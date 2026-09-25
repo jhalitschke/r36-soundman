@@ -42,6 +42,17 @@ jobs:
       - name: Core-Smoke-Test (API, Symbole, AV-Info, .info)
         run: python3 tests/core_smoke.py cores/adl/adl_libretro.so
 
+      - name: Audio-Tests (Tonhöhe, Note-Off, Panic, Gain)
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Demo rendern
+        run: python3 scripts/adl_harness.py --demo adl-demo.wav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adl-demo-wav
+          path: adl-demo.wav
+
   core-adl-arm64:
     name: cores/adl (arm64 im Container)
     # Nur auf Knopfdruck: qemu-emuliertes cmake braucht deutlich laenger als der x86-Check.

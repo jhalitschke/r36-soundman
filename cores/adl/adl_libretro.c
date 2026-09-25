@@ -5,6 +5,9 @@
  *          unabhängig davon, ob RetroArch mit MIDI-Support gebaut ist.
  *          Override: Umgebungsvariable ADL_MIDI_DEV=/dev/snd/midiC1D0
  * Steuerung: L/R = Program -/+ (Kanal 1), A = Panic, Select+Start = RetroArch-Menü
+ * Ausgang:   libADLMIDI laesst ~20 dB Headroom (einzelne Note gemessen bei -33 dBFS,
+ *            lautestes Volume-Modell -24 dBFS), darum eine feste Verstaerkung mit
+ *            Saettigung. Override: ADL_GAIN=1..64 (Standard 6 = +15,6 dB).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +39,7 @@ static int16_t  abuf[FRAMES * 2];
 static int      midi_fd = -1;
 static char     midi_path[256];
 static uint8_t  chan_act[16];
+static int      gain_q8 = 6 * 256;         /* Ausgangsverstaerkung in 8.8, ADL_GAIN */
 static int      program;
 static uint16_t prev_buttons;
 
@@ -184,6 +188,12 @@ bool retro_load_game(const struct retro_game_info *game)
         adl_setBank(adl, 0);
         log_cb(RETRO_LOG_INFO, "[adl] eingebettete Bank 0\n");
     }
+    const char *g = getenv("ADL_GAIN");
+    if (g) {
+        double v = atof(g);
+        if (v > 0.0 && v <= 64.0) gain_q8 = (int)(v * 256.0 + 0.5);
+    }
+    log_cb(RETRO_LOG_INFO, "[adl] Gain %.2f\n", gain_q8 / 256.0);
     midi_open();
     return true;
 }
@@ -215,6 +225,10 @@ void retro_run(void)
 
     midi_poll();
     int got = adl_generate(adl, FRAMES * 2, abuf);
+    for (int i = 0; i < got; i++) {
+        int32_t v = ((int32_t)abuf[i] * gain_q8) >> 8;
+        abuf[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)v;
+    }
     audio_batch_cb(abuf, got > 0 ? got / 2 : 0);
     draw();
     video_cb(fb, W, H, W * sizeof(uint16_t));
