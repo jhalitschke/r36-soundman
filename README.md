@@ -28,11 +28,15 @@ macOS: Docker Desktop kann arm64 ohne qemu-Paket. RNDIS braucht dort HoRNDIS; CD
 4. Taucht kein Interface auf: https://github.com/ctgl1987/arkos-usb-network-mode, Option 1 prüft,
    ob das Board Device-Mode überhaupt kann. Ein NOT SUPPORTED-Gerät wird Referenzgerät.
 
-Check: `scripts/inventory.sh r36a` läuft durch und schreibt `device/r36a/`.
+Check: `scripts/inventory.sh r36a` läuft durch und schreibt `device/r36a/`. Die `inventory.txt` entsteht
+erst bei Erfolg (ein Abbruch überschreibt kein gutes Inventar) und enthält zusätzlich: `sudo`-Verhalten,
+ES-systemd-Unit, beide RetroArch-Configs (64/32 bit), welche `es_systems.cfg` wirksam ist und ob
+`r8152`/`cdc_ether` als Modul, einkompiliert (`modules.builtin`) oder geladen (`lsmod`) vorliegen.
 
 ## Phase 1 – Host-Mode + USB-Ethernet am OTG-Hub
 
-In `device/r36a/inventory.txt` nachsehen: `r8152`/`cdc_ether` als `=y` oder `.ko` vorhanden?
+In `device/r36a/inventory.txt` unter `== usb-net treiber` nachsehen: `r8152`/`cdc_ether` als `.ko`,
+in `modules.builtin` oder in `lsmod`?
 Dann RNDIS aus, OTG-Hub mit RTL8152/8153-Adapter dran, Host-Ethernet auf "Shared to other computers",
 `HostName` in `~/.ssh/config` auf die DHCP-IP setzen. Ab jetzt hängen Ethernet, MIDI und Tastatur
 gleichzeitig am Hub.
@@ -90,6 +94,21 @@ Emulator ist DOSBox-OPL (leichter als Nuked); `adl_switchEmulator` in `adl_libre
 
 Weitere Engines = Kopie von `cores/adl/` mit anderer Lib: libOPNMIDI (`opn2_*`, `.wopn`),
 mt32emu (ROMs nach RetroArch `system/`).
+
+## Tests & CI
+
+Ohne Gerät prüfbar, gleiche Schritte wie in `.github/workflows/ci.yml`:
+
+    for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
+    shellcheck --severity=warning scripts/*.sh ports/*/*.sh
+    python3 -m unittest discover -s tests          # es-merge.py + ES-Fragmente
+    make -C cores/adl                              # x86-Compile-Check (nicht fürs Gerät)
+    python3 tests/core_smoke.py cores/adl/adl_libretro.so
+
+`core_smoke.py` lädt die `.so` per ctypes und prüft libretro-API, Pflichtsymbole,
+48 kHz / 60 fps / 320x240 und ob die `.info` zu den Angaben des Cores passt.
+Der arm64-Build (`scripts/build.sh adl`) läuft in CI nur per *Run workflow* – qemu ist zu langsam
+für jeden Push.
 
 ## Checkpoints
 

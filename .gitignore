@@ -6,3 +6,4 @@ ports/picoloop/src/
 ports/picoloop/picoloop
 ports/picoloop/lib/
 *.o
+__pycache__/
