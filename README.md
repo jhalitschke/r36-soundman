@@ -23,6 +23,91 @@ parsing are verified on the host and in CI.
     tests/        hardware-free tests (ES merge, core API, core audio)
     device/<h>/   per device: inventory + copies of es_systems.cfg (gitignored)
 
+## How it fits together
+
+Two tracks reach the same speaker. Track A is EmulationStation launching a script; track B is a
+libretro core of ours inside RetroArch. Everything left of the dotted line is built and merged on the
+host and travels over the USB cable.
+
+```mermaid
+flowchart LR
+  subgraph host["this repo, on the host"]
+    direction TB
+    CORES["cores/adl · opn · gme"]
+    SO["*_libretro.so · aarch64"]
+    PORTS["ports/synth · picoloop · lgpt"]
+    FRAG["es/systems/*.xml"]
+    MERGED["merged es_systems.cfg"]
+    LOGOS["es/theme/logos/*.png"]
+    CORES -->|"build.sh · arm64 container"| SO
+    FRAG -->|"es-merge.py"| MERGED
+  end
+
+  subgraph dev["r36a"]
+    direction TB
+    ES["EmulationStation"]
+    RA["retroarch -L core"]
+    SH["port script + gptokeyb"]
+    ALSA["ALSA plughw:0,0<br/>768 frames · 16 ms"]
+    HW["RK817 codec"]
+    ES -->|"track B"| RA
+    ES -->|"track A"| SH
+    RA --> ALSA
+    SH --> ALSA
+    ALSA --> HW
+  end
+
+  SO ==>|"deploy.sh"| RA
+  PORTS ==>|"deploy.sh"| SH
+  MERGED ==>|"deploy.sh"| ES
+  LOGOS ==>|"deploy.sh"| ES
+
+  MIDI["USB MIDI keyboard<br/>phase 2, still open"] -.->|"rawmidi"| RA
+  MIDI -.->|"alsa sequencer"| SH
+```
+
+### One USB port, and everything wants it
+
+The board has a single USB controller: EHCI and OHCI are disabled in every devicetree on the card, so
+`dwc2` is it. Which role that port takes is decided at boot, and `tools/Boot Role.sh` rewrites the one
+line in `boot.ini` that decides it.
+
+```mermaid
+flowchart TB
+  DWC["dwc2 at ff300000<br/>the only USB controller"]
+  PHY["usb2-phy otg-port<br/>ships disabled · patched to okay by dtb-otg.py"]
+  PORT["the one USB-C data port"]
+  DWC --> PHY
+  PHY --> PORT
+
+  PORT -->|"boot.ini · dr_mode = peripheral"| GAD["g_ether gadget"]
+  GAD --> NET["10.44.44.1<br/>ssh · scp · deploy · internet via the PC"]
+
+  PORT -->|"boot01.ini · dr_mode = otg"| HOST["USB host"]
+  HOST --> HUB["plain powered USB 2.0 hub"]
+  HUB --> KBD["MIDI keyboard"]
+  HUB --> ETH["USB ethernet"]
+
+  PORT -.->|"loses the bus to whatever is plugged in"| WIFI["internal wifi · R8188EU"]
+```
+
+### Where the latency came from
+
+85 ms looked like a hardware limit and was a line in ArkOS's `asound.conf`. Only the lower path is
+ours - the fragments append `r36-lowlatency.cfg`, and nothing else on the device is touched.
+
+```mermaid
+flowchart LR
+  APP["RetroArch"]
+  APP -->|"audio_device unset · ArkOS default"| PLUG["plug"]
+  PLUG --> DMIX["dmix<br/>period_size 1024 · buffer_size 4096"]
+  DMIX --> HWA["hw:0,0"]
+  HWA --> SLOW["floor 2048 frames<br/>42.7 ms · whatever audio_latency says"]
+
+  APP -->|"audio_device = plughw:0,0"| HWB["hw:0,0 direct"]
+  HWB --> FAST["768 frames<br/>16 ms · below 8 ms it breaks"]
+```
+
 ## One-time setup on the host
 
     sudo apt install rsync docker.io                                 # Ubuntu
