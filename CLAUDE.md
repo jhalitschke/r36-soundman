@@ -42,8 +42,10 @@ display is only used to verify.
 - Upstream sources are pinned by revision (`ADL_REV`, `PICOLOOP_REV`): the measured audio levels
   and the tests assert absolute numbers.
 - Cross builds only in the Docker container (`docker/Dockerfile`, `scripts/build.sh`), platform
-  `linux/arm64`. `UBUNTU` in `scripts/build.sh` has to match the ArkOS base
-  (`device/<host>/inventory.txt`, the `lsb_release` line).
+  `linux/arm64`. The container's Ubuntu does **not** have to match the device's: what matters is the
+  symbol versions the linker binds, and `scripts/build.sh` checks those with `scripts/glibc-check.py`
+  at the end of every build. Measured on adl from a 20.04 container against r36a's 19.10: the highest
+  is `GLIBC_2.29` and `GLIBCXX_3.4.21`, well inside the device's 2.30 and 3.4.28.
 - On the host, `make -C cores/adl` may run as a pure compile check (x86); the result does not go to
   the device.
 - Binaries and `.so` files are gitignored. Libraries the device does not have are bundled with the
@@ -110,11 +112,11 @@ display is only used to verify.
 - picoloop is built for arm64 with the makefile and key mapping settled
   (`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, RtAudio on ALSA, `keys.gptk` from `Master.h`).
 - Logos for every system are in `es/theme/logos/`.
-- Open: whether `dr_mode = "peripheral"` gets the board to enumerate, or whether the data lines are
-  genuinely unwired; `UBUNTU` in `scripts/build.sh` is 20.04 while the device is 19.10, so
-  cores built today would want glibc 2.31 against the device's 2.30; the `LGPT_BIN` path
-  (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which theme is installed and
-  where it wants its art.
+- Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which
+  theme is installed and where it wants its art; and phase 2, which needs hardware.
+- `cores/adl` is built for arm64 and measured against the device's runtime; it has not been deployed
+  or run there yet. A cross-built .so sits where a host build would, so the core tests check the ELF's
+  architecture and skip rather than fail on a dlopen that reports a foreign binary as a missing file.
 - Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built
   into the kernel, the host role works, but nothing has enumerated yet. A Dell WD19 fails on PD it
   cannot negotiate; a DDJ-FLX4 froze the device even on external power (suspect dwc2's host path with

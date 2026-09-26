@@ -85,3 +85,6 @@ jobs:
         run: |
           file cores/*/*_libretro.so
           file cores/*/*_libretro.so | grep -c 'ARM aarch64' | grep -q '^2$'
+
+      - name: nothing needs a newer glibc than the device has
+        run: scripts/glibc-check.py --max 2.30 cores/*/*_libretro.so

@@ -25,10 +25,20 @@ parsing are verified on the host and in CI.
 
 ## One-time setup on the host
 
-    sudo apt install rsync docker.io qemu-user-static binfmt-support   # Ubuntu
+    sudo apt install rsync docker.io                                 # Ubuntu
+    docker run --privileged --rm tonistiigi/binfmt --install arm64    # arm64 emulation
     cat ssh/config.example >> ~/.ssh/config
 
-macOS: Docker Desktop does arm64 without the qemu package. RNDIS needs HoRNDIS there; CDC-ECM works
+The emulation line used to read `qemu-user-static binfmt-support`, which no longer installs: on
+current Ubuntu `qemu-user-static` is a virtual package and the real ones are `qemu-user-binfmt` and
+`qemu-user-binfmt-hwe`. The container registers the same `binfmt_misc` handler and keeps working.
+Without it every arm64 container dies with `exec format error`.
+
+If `docker build` fails with `mkdir ~/.docker/buildx/instances: permission denied`, that directory
+belongs to root from some earlier `sudo docker` - `sudo chown -R "$USER:$USER" ~/.docker` fixes it
+for good, and `DOCKER_CONFIG=$(mktemp -d)` works around it without touching anything.
+
+macOS: Docker Desktop does arm64 without any of this. RNDIS needs HoRNDIS there; CDC-ECM works
 natively.
 
 ## Phase 0 – SSH over the cable
@@ -322,7 +332,7 @@ will show - most ES themes take a per-system `art/logo.svg`. Until that is known
 
 ## Phase 5 – Track B (libretro cores)
 
-    scripts/build.sh adl          # cores/adl/adl_libretro.so (arm64)
+    scripts/build.sh adl          # cores/adl/adl_libretro.so (arm64) + the glibc check
     scripts/build.sh opn          # cores/opn/opn_libretro.so (arm64)
     scripts/deploy.sh r36a
     scripts/run.sh r36a 'retroarch -L $(grep ^libretro_directory ~/.config/retroarch/retroarch.cfg | cut -d\" -f2)/adl_libretro.so --verbose'
@@ -341,6 +351,27 @@ bank**, so `opn` refuses to start without content. Put a `.wopn` in `/roms/opn/`
 twelve in `fm_banks/` (check their individual licences before shipping one) or build your own with
 the WOPN editor. The next engine is the same copy again with mt32emu, whose ROMs go into RetroArch's
 `system/`.
+
+### The container's Ubuntu is not the question
+
+`scripts/build.sh` ends with `scripts/glibc-check.py`, which reads `.gnu.version_r` out of everything
+it just built and refuses anything the device cannot load. That is the check worth having: the
+release the container is based on says nothing, the symbol versions the linker bound say everything.
+
+Measured on `adl`, cross-built in a 20.04 container for r36a's 19.10:
+
+    libc.so.6       GLIBC_2.17 GLIBC_2.27
+    libm.so.6       GLIBC_2.17 GLIBC_2.29        <- the highest, device has 2.30
+    libstdc++.so.6  CXXABI_1.3.9 GLIBCXX_3.4.21  <- device has 1.3.12 and 3.4.28
+
+So the two-release gap never mattered. Most symbols sit at `GLIBC_2.17`, the aarch64 base version,
+whatever the build image is. The C++ runtime is checked as well, since the cores link libstdc++ for
+their upstream library - a core that loads and then dies on a missing `GLIBCXX_` is the same failure
+wearing a different name.
+
+A cross-built .so lands where a host-side `make` would put one, and `dlopen` reports a foreign
+architecture as "No such file or directory". The core tests therefore read the ELF's `e_machine` and
+skip, rather than erroring about a file that is plainly there.
 
 ## Tests & CI
 
