@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 """Drives a built libretro core without RetroArch and without the device:
-callbacks via ctypes, MIDI through a FIFO (ADL_MIDI_DEV), audio into a WAV.
+callbacks via ctypes, MIDI through a FIFO, audio into a WAV.
 
     scripts/adl_harness.py --demo out.wav      # render the demo sequence
     scripts/adl_harness.py --tone 69 out.wav   # render a single note (A4)
     scripts/adl_harness.py --demo --shots shot # the core's own 320x240 screen as PNGs
+    scripts/adl_harness.py --so cores/opn/opn_libretro.so --bank gm.wopn --tone 69
+
+Works for any core that follows the conventions in CLAUDE.md. The environment
+variables are per core (ADL_MIDI_DEV, OPN_MIDI_DEV, ...), so the prefix is taken
+from the name the core reports in retro_get_system_info.
 
 That makes the bank, the MIDI parser, note output and note-off verifiable on the
 host (x86 build). The result does not go to the device - it is a functional test.
@@ -42,6 +47,13 @@ CB_POLL = ctypes.CFUNCTYPE(None)
 CB_STATE = ctypes.CFUNCTYPE(ctypes.c_int16, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint)
 
 
+class SystemInfo(ctypes.Structure):
+    """struct retro_system_info - read before loading, to learn the core's name."""
+    _fields_ = [("library_name", ctypes.c_char_p), ("library_version", ctypes.c_char_p),
+                ("valid_extensions", ctypes.c_char_p), ("need_fullpath", ctypes.c_bool),
+                ("block_extract", ctypes.c_bool)]
+
+
 class GameInfo(ctypes.Structure):
     """struct retro_game_info - retro_load_game takes this, not a bare path."""
     _fields_ = [("path", ctypes.c_char_p), ("data", ctypes.c_void_p),
@@ -60,13 +72,15 @@ class Core:
         self._tmp = tempfile.mkdtemp(prefix="adl-harness-")
         self.fifo = os.path.join(self._tmp, "midi")
         os.mkfifo(self.fifo)
-        # Has to be set before retro_load_game. midi=False points the core at a path
-        # that does not exist, which is how the "no rawmidi device" state is reached.
-        os.environ["ADL_MIDI_DEV"] = self.fifo if midi else self.fifo + "-absent"
 
         self.lib = ctypes.CDLL(str(so))
         self.lib.retro_load_game.restype = ctypes.c_bool
         self.lib.retro_load_game.argtypes = [ctypes.POINTER(GameInfo)]
+
+        info = SystemInfo()
+        self.lib.retro_get_system_info(ctypes.byref(info))
+        self.name = info.library_name.decode()
+        self.prefix = self.name.upper()          # ADL_MIDI_DEV, OPN_MIDI_DEV, ...
 
         # Keep the references, otherwise the GC collects the callbacks.
         self._cbs = [CB_ENV(self._env), CB_VIDEO(self._video), CB_AUDIO_BATCH(self._audio_batch),
@@ -77,6 +91,9 @@ class Core:
         self.lib.retro_set_audio_sample(self._cbs[3])
         self.lib.retro_set_input_poll(self._cbs[4])
         self.lib.retro_set_input_state(self._cbs[5])
+        # Has to be set before retro_load_game. midi=False points the core at a path
+        # that does not exist, which is how the "no rawmidi device" state is reached.
+        os.environ[self.prefix + "_MIDI_DEV"] = self.fifo if midi else self.fifo + "-absent"
         self.lib.retro_init()
 
         # Kept on the instance: the core stores nothing, but ctypes must not

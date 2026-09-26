@@ -1,0 +1,9 @@
+<system>
+  <name>opn</name>
+  <fullname>YM2612 OPN2 (libOPNMIDI)</fullname>
+  <path>/roms/opn</path>
+  <extension>.wopn .WOPN</extension>
+  <command>{{RA}} -L {{CORES}}/opn_libretro.so {{TAIL}}</command>
+  <platform>pc</platform>
+  <theme>ports</theme>
+</system>

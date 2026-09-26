@@ -30,33 +30,41 @@ jobs:
       - name: ES merge tests
         run: python3 -m unittest discover -s tests -v
 
-  core-adl:
-    name: cores/adl (x86 compile check)
+  cores:
+    name: cores (x86 compile check)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: build libADLMIDI + core
+      - name: build libADLMIDI + adl
         run: make -C cores/adl
 
-      - name: core smoke test (API, symbols, AV info, .info)
-        run: python3 tests/core_smoke.py cores/adl/adl_libretro.so
+      - name: build libOPNMIDI + opn
+        run: make -C cores/opn
 
-      - name: audio tests (pitch, note-off, panic, gain)
+      - name: core smoke tests (API, symbols, AV info, .info)
+        run: |
+          python3 tests/core_smoke.py cores/adl/adl_libretro.so
+          python3 tests/core_smoke.py cores/opn/opn_libretro.so
+
+      - name: audio tests (pitch, note-off, panic, gain, MIDI wire format)
         run: python3 -m unittest discover -s tests -v
 
-      - name: render the demo and screenshots
-        run: python3 scripts/adl_harness.py --demo adl-demo.wav --shots adl-shot
+      - name: render the demos and screenshots
+        run: |
+          python3 scripts/adl_harness.py --demo adl-demo.wav --shots adl-shot
+          python3 scripts/adl_harness.py --so cores/opn/opn_libretro.so \
+            --bank cores/opn/libOPNMIDI/fm_banks/xg.wopn --demo opn-demo.wav --shots opn-shot
 
       - uses: actions/upload-artifact@v4
         with:
-          name: adl-demo
+          name: demos
           path: |
-            adl-demo.wav
-            adl-shot-*.png
+            *-demo.wav
+            *-shot-*.png
 
-  core-adl-arm64:
-    name: cores/adl (arm64 in the container)
+  cores-arm64:
+    name: cores (arm64 in the container)
     # On demand only: qemu-emulated cmake takes far longer than the x86 check.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -66,12 +74,14 @@ jobs:
 
       - uses: docker/setup-qemu-action@v3
 
-      - name: scripts/build.sh adl
+      - name: scripts/build.sh adl + opn
         env:
           UBUNTU: "20.04" # has to match the ArkOS base (device/<host>/inventory.txt)
-        run: scripts/build.sh adl
-
-      - name: the .so is aarch64
         run: |
-          file cores/adl/adl_libretro.so
-          file cores/adl/adl_libretro.so | grep -q 'ARM aarch64'
+          scripts/build.sh adl
+          scripts/build.sh opn
+
+      - name: both .so are aarch64
+        run: |
+          file cores/*/*_libretro.so
+          file cores/*/*_libretro.so | grep -c 'ARM aarch64' | grep -q '^2$'

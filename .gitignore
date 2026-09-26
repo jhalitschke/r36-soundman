@@ -1,6 +1,7 @@
 device/*/
 !device/.gitkeep
 cores/*/libADLMIDI/
+cores/*/libOPNMIDI/
 cores/*/*.so
 ports/picoloop/src/
 ports/picoloop/picoloop
@@ -8,6 +9,6 @@ ports/picoloop/lib/
 *.o
 __pycache__/
 *.wav
-adl-shot-*.png
+*-shot-*.png
 ports/picoloop/font.*
 ports/picoloop/patch/

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # arm64 builds in the Docker container. One-time on Ubuntu: sudo apt install qemu-user-static binfmt-support
 # scripts/build.sh            -> all targets
-# scripts/build.sh adl        -> core only
+# scripts/build.sh adl        -> one core (adl, opn)
 # scripts/build.sh picoloop   -> port only
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,6 +13,7 @@ run() { docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -e HOM
           -v "$PWD:/src" -w /src r36s-build bash -c "$1"; }
 case "${1:-all}" in
   adl|all)      run "make -C cores/adl" ;;&
+  opn|all)      run "make -C cores/opn" ;;&
   picoloop|all) run "ports/picoloop/build.sh" ;;
-  *)            echo "unknown target: $1 (adl, picoloop, all)" >&2; exit 2 ;;
+  *)            echo "unknown target: $1 (adl, opn, picoloop, all)" >&2; exit 2 ;;
 esac
