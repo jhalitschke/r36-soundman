@@ -8,3 +8,4 @@ ports/picoloop/lib/
 *.o
 __pycache__/
 *.wav
+adl-shot-*.png

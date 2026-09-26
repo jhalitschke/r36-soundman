@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Listening test without ears: drives the built core and checks its audio.
+"""Testing the built core without ears or a screen: audio and framebuffer.
 
 Needs cores/adl/adl_libretro.so (make -C cores/adl) - without it the tests skip
 themselves, so the lint job stays build-free.
 """
 import importlib.util
 import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -106,6 +107,54 @@ class TestCoreAudio(unittest.TestCase):
         os.environ.pop("ADL_GAIN", None)
         self.assertAlmostEqual(levels["6"] / levels["1"], 6.0, delta=0.6,
                                msg="gain is not linear: %r" % levels)
+
+
+@unittest.skipUnless(SO.exists(), "cores/adl/adl_libretro.so missing - run 'make -C cores/adl' first")
+class TestCoreScreen(unittest.TestCase):
+    """The 320x240 framebuffer is the only feedback the device gives, so check it."""
+
+    def test_status_field_is_green_with_midi(self):
+        core = H.Core(SO, midi=True)
+        self.addCleanup(core.close)
+        self.assertEqual(H.pixel(core.screenshot(), 10, 10), H.GREEN)
+
+    def test_status_field_is_red_without_midi(self):
+        core = H.Core(SO, midi=False)
+        self.addCleanup(core.close)
+        self.assertEqual(H.pixel(core.screenshot(), 10, 10), H.RED)
+
+    def test_notes_light_up_their_channel_bars(self):
+        core = H.Core(SO)
+        self.addCleanup(core.close)
+        empty = core.screenshot()
+        self.assertEqual(H.pixel(empty, 10, 215), 0x0000, "bars light up without a note")
+        core.note_on(H.LEAD, 69, 110)
+        core.note_on(H.DRUM, 36, 110)
+        shot = core.screenshot()
+        self.assertEqual(H.pixel(shot, 10, 215), H.CHAN_BAR)
+        self.assertEqual(H.pixel(shot, 8 + 9 * 19 + 2, 215), H.DRUM_BAR, "channel 10 is not drawn as drums")
+
+    def test_program_bar_grows_with_the_r_button(self):
+        core = H.Core(SO)
+        self.addCleanup(core.close)
+        before = core.screenshot()
+        for _ in range(8):
+            core.press(H.ID_R)
+        after = core.screenshot()
+        def bar_width(shot):
+            return sum(1 for x in range(24, 200) if H.pixel(shot, x, 10) == H.WHITE)
+        self.assertGreater(bar_width(after), bar_width(before), "program bar does not grow")
+
+    def test_screenshot_is_a_valid_png(self):
+        core = H.Core(SO)
+        self.addCleanup(core.close)
+        w, h, fb = core.screenshot()
+        self.assertEqual((w, h, len(fb)), (320, 240, 320 * 240 * 2))
+        with tempfile.TemporaryDirectory() as d:
+            path = H.png(os.path.join(d, "s.png"), w, h, fb, scale=1)
+            data = Path(path).read_bytes()
+        self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertIn(b"IEND", data[-12:])
 
 
 if __name__ == "__main__":

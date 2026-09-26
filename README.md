@@ -120,7 +120,8 @@ Verifiable without the device, the same steps as in `.github/workflows/ci.yml`:
 48 kHz / 60 fps / 320x240, and whether the `.info` matches what the core reports. The audio tests
 need the built `.so` and skip themselves otherwise. The arm64 build (`scripts/build.sh adl`) only
 runs in CI via *Run workflow* – qemu is too slow for every push. Every CI run uploads
-`adl-demo.wav` as an artifact: a change to the core is audible, not just green.
+`adl-demo.wav` plus screenshots as an artifact: a change to the core is audible and visible, not
+just green.
 
 ## Harness: hearing the core without RetroArch
 
@@ -130,7 +131,15 @@ levels testable on the host before anything goes to the device:
 
     make -C cores/adl
     scripts/adl_harness.py --demo demo.wav        # 6 bars, 120 bpm, lead/bass/pad/drums
-    scripts/adl_harness.py --tone 69 a4.wav      # single note, measures the fundamental
+    scripts/adl_harness.py --tone 69 a4.wav       # single note, measures the fundamental
+    scripts/adl_harness.py --demo --shots shot    # the core's 320x240 screen as PNGs
+
+`--shots` captures the framebuffer the core hands to `video_cb` - the same pixels RetroArch would
+put on the display - and writes them as PNGs (nearest-neighbour scaled, `--scale`, no dependencies).
+That is what the screen shows: a green square when the rawmidi device is open and a red one when it
+is not, the program as a white bar next to it, and 16 channel bars along the bottom that are
+triggered by note-on and decay over about 0.7 s (channel 10 in orange for drums). The tests check
+those pixels, so the display cannot silently break.
 
 Measured (DOSBox emulator, embedded bank 0, one chip): pitch accurate to 0.1 % across four octaves,
 note-on to first sample 2.96 ms (OPL3 attack; MIDI is polled once per `retro_run`, so add 0–16.7 ms

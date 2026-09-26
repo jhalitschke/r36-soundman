@@ -45,13 +45,15 @@ jobs:
       - name: audio tests (pitch, note-off, panic, gain)
         run: python3 -m unittest discover -s tests -v
 
-      - name: render the demo
-        run: python3 scripts/adl_harness.py --demo adl-demo.wav
+      - name: render the demo and screenshots
+        run: python3 scripts/adl_harness.py --demo adl-demo.wav --shots adl-shot
 
       - uses: actions/upload-artifact@v4
         with:
-          name: adl-demo-wav
-          path: adl-demo.wav
+          name: adl-demo
+          path: |
+            adl-demo.wav
+            adl-shot-*.png
 
   core-adl-arm64:
     name: cores/adl (arm64 in the container)
