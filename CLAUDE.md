@@ -114,9 +114,16 @@ display is only used to verify.
 - Logos for every system are in `es/theme/logos/`.
 - Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which
   theme is installed and where it wants its art; and phase 2, which needs hardware.
-- `cores/adl` is built for arm64 and measured against the device's runtime; it has not been deployed
-  or run there yet. A cross-built .so sits where a host build would, so the core tests check the ELF's
-  architecture and skip rather than fail on a dlopen that reports a foreign binary as a missing file.
+- **`cores/adl` runs on r36a.** Deployed with `deploy.sh`, started with `run.sh`: `ldd` resolves
+  every library on the device, the empty `embedded.wopl` selects the embedded bank as designed, the
+  AV info comes out at 320x240 / 60 fps / 48 kHz, ALSA takes the output, and 1422 frames went out in
+  23 s with 14 dropped - the RK3326 holds 60 fps. Opening MIDI fails cleanly with a retry loop
+  ("no rawmidi device"), which is correct: there is no MIDI hardware attached, see phase 2.
+- Measured on that run: RetroArch takes a **4096-frame ALSA buffer, 85 ms** at 48 kHz, because
+  `retroarch.cfg` asks for `audio_latency = 128`. Checkpoint 4.1 puts the useful limit around 40 ms,
+  so this is the first knob to turn before judging Track B for live playing.
+- A cross-built .so sits where a host build would, so the core tests check the ELF's architecture and
+  skip rather than fail on a dlopen that reports a foreign binary as a missing file.
 - Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built
   into the kernel, the host role works, but nothing has enumerated yet. A Dell WD19 fails on PD it
   cannot negotiate; a DDJ-FLX4 froze the device even on external power (suspect dwc2's host path with

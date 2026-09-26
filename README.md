@@ -352,6 +352,25 @@ twelve in `fm_banks/` (check their individual licences before shipping one) or b
 the WOPN editor. The next engine is the same copy again with mt32emu, whose ROMs go into RetroArch's
 `system/`.
 
+### What the first run on the device said
+
+    [libretro INFO] [adl] /roms/adlib/embedded.wopl is empty, embedded bank 0
+    [libretro INFO] [adl] Gain 6.00
+    [libretro INFO] [adl] MIDI (no rawmidi device) -> FAILED, retrying once a second
+    [INFO] [Core]: Geometry: 320x240, Aspect: 1.333, FPS: 60.00, Sample rate: 48000.00 Hz.
+    [INFO] [ALSA]: Period: 4 periods per buffer (1024 frames, 8192 bytes)
+    [INFO] [ALSA]: Buffer size: 4096 frames (32768 bytes)
+    [INFO] Threaded video stats: Frames pushed: 1422, Frames dropped: 14.
+
+Everything the conventions promise holds on the hardware: the empty marker reaches the embedded bank,
+the AV info matches, ALSA accepts the output and the RK3326 keeps 60 fps. The MIDI open failing is
+correct - nothing is attached - and it fails by retrying rather than by dying, which is what lets the
+core be started before the keyboard is plugged in.
+
+The buffer line is the one to act on: 4096 frames at 48 kHz is **85 ms**, because `retroarch.cfg`
+asks for `audio_latency = 128`. Checkpoint 4.1 puts the line for playing live at around 40 ms, so
+turn that down before concluding anything about how Track B feels.
+
 ### The container's Ubuntu is not the question
 
 `scripts/build.sh` ends with `scripts/glibc-check.py`, which reads `.gnu.version_r` out of everything
