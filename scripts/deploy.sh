@@ -71,5 +71,24 @@ else
   scp cores/opn/Doom32x-fixx.wopn cores/opn/Doom32x-fixx-readme.txt "$HOST:/roms/opn/"
 fi
 
+# Logos, into whichever theme is switched on right now. The theme takes them as
+# _art/logos/${system.theme}.png, and the fragments set <theme> to their own
+# name so each system gets its own instead of the generic Ports one. A logo the
+# theme already ships is left alone, and switching themes means deploying again.
+THEME=$(ssh "$HOST" 'sed -n "s/.*name=\"ThemeSet\" value=\"\([^\"]*\)\".*/\1/p" ~/.emulationstation/es_settings.cfg')
+if [ -n "$THEME" ] && ssh "$HOST" "[ -d /roms/themes/$THEME/_art/logos ]"; then
+  echo "== logos -> $THEME"
+  for png in es/theme/logos/*.png; do
+    n=$(basename "$png")
+    if ssh "$HOST" "[ -e /roms/themes/$THEME/_art/logos/$n ]"; then
+      echo "   $n: the theme has its own, left alone"
+    else
+      scp -q "$png" "$HOST:/roms/themes/$THEME/_art/logos/$n" && echo "   $n"
+    fi
+  done
+else
+  echo "== logos: no theme with an _art/logos directory (ThemeSet=${THEME:-unset}) - skipped"
+fi
+
 ssh "$HOST" "sudo systemctl restart emulationstation"
 echo "done. the original is on the device as ${ES}.orig"

@@ -334,9 +334,14 @@ element - EmulationStation renders SVG through nanosvg, which does not draw text
 icon plus a pixel wordmark with a hard shadow, so it stays readable on a light theme background as
 well. A new system is four lines in `SYSTEMS` plus a 16x16 icon.
 
-Where they go on the device depends on the theme that is actually installed, which the inventory
-will show - most ES themes take a per-system `art/logo.svg`. Until that is known the systems keep
-`theme="ports"`, and `deploy.sh` does not touch the theme.
+r36a runs **gameconsole-sagabox**, and it takes logos as `_art/logos/${system.theme}.png` - one flat
+directory, 179 of them, named after the system's `<theme>`. So the fragments now set `<theme>` to
+their own name and `deploy.sh` copies the PNGs into whichever ThemeSet `es_settings.cfg` has switched
+on. A logo the theme already ships is never overwritten, and switching themes means deploying again.
+
+Two things that theme taught us, both visible in `es_log.txt`: a system needs **no folder of its own**
+in the theme - 11 of ArkOS's own systems have none and ES simply carries on - and a missing logo is a
+warning, not an error. So the footprint is six PNG files and nothing else.
 
 ## Phase 5 – Track B (libretro cores)
 

@@ -5,5 +5,5 @@
   <extension>.wopl .WOPL</extension>
   <command>{{RA}} -L {{CORES}}/adl_libretro.so {{APPEND}} {{TAIL}}</command>
   <platform>pc</platform>
-  <theme>ports</theme>
+  <theme>adlib</theme>
 </system>

@@ -59,10 +59,13 @@ display is only used to verify.
 - Ports: one folder under `ports/<name>/`, launch script following the PortMaster pattern
   (`source control.txt`, `get_controls`, `$GPTOKEYB`, log to `log.txt` in the port folder, `$ESUDO
   kill` at the end). Select+Start always quits.
-- ES systems: one fragment per system in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}`/`{{TAIL}}` as
-  placeholders, `scripts/es-merge.py` substitutes them from the device file (`{{TAIL}}` carries the
-  device command's own `--config`/`%ROM%`). Logos are in `es/theme/logos/`, but the systems stay on
-  `theme="ports"` until the inventory shows which theme is installed.
+- ES systems: one fragment per system in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}`/`{{APPEND}}`/
+  `{{TAIL}}` as placeholders, `scripts/es-merge.py` substitutes them from the device file (`{{TAIL}}`
+  carries the device command's own `--config`/`%ROM%`). `<theme>` is the system's own name, which is
+  what the installed theme looks a logo up by: r36a runs **gameconsole-sagabox**, which takes them as
+  `_art/logos/${system.theme}.png`. `deploy.sh` copies `es/theme/logos/*.png` into whichever ThemeSet
+  is switched on, never over one the theme ships itself - so switching themes means deploying again.
+  A system needs no folder of its own in the theme: 11 of ArkOS's own have none and ES copes.
 - Cores: `cores/<name>/` with `<name>_libretro.c`, `Makefile`, `<name>_libretro.info`. 48 kHz,
   60 fps, 320x240 RGB565, MIDI straight from `/dev/snd/midiC*D*` (override `<NAME>_MIDI_DEV`), no
   RetroArch MIDI interface.

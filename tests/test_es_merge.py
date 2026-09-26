@@ -178,8 +178,13 @@ class TestFragments(unittest.TestCase):
                 self.assertEqual(sysel.tag, "system")
                 for tag in ("name", "fullname", "path", "extension", "command", "platform", "theme"):
                     self.assertTrue((sysel.findtext(tag) or "").strip(), "<%s> missing" % tag)
-                # As long as there are no logos of our own: theme="ports" (CLAUDE.md).
-                self.assertEqual(sysel.findtext("theme"), "ports")
+                # The theme name is what the installed theme looks its logo up by
+                # (_art/logos/${system.theme}.png), so it has to be our own name
+                # and a logo of that name has to exist to be deployed.
+                theme = sysel.findtext("theme")
+                self.assertEqual(theme, sysel.findtext("name"))
+                self.assertTrue((ROOT / "es" / "theme" / "logos" / (theme + ".png")).exists(),
+                                "no logo for theme %r" % theme)
                 # Either the fragment names the ROM itself, or it inherits the
                 # device command's tail, which carries %ROM%.
                 command = sysel.findtext("command")
