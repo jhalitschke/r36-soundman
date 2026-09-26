@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # Ubuntu/macOS host: the PC end of the USB cable.
 #
-#   scripts/usb-net-host.sh [-w SECONDS] [ifname]
+#   scripts/usb-net-host.sh [-w SECONDS] [--share] [ifname]
 #
-# The handheld sits on a fixed 10.44.44.1 and this takes 10.44.44.2. It does run
-# a DHCP server, but a static pair depends on nothing but the wire - and dnsmasq
-# on the device has already been the reason a perfectly good link looked dead.
+# Two directions, and the handheld has to be told the same one:
+#
+#   default    the handheld serves (10.44.44.1) and this takes 10.44.44.2.
+#              It runs a DHCP server too, but a static pair depends on nothing
+#              but the wire - and dnsmasq on the device has already been the
+#              reason a perfectly good link looked dead.
+#   --share    this PC serves and NATs its own connection, so the handheld gets
+#              an address from it and reaches the internet. PortMaster and apt
+#              need that. On the handheld: "r36-usbnet internet".
+#
+# Either way the device's address is printed at the end, read out of the ARP
+# table by its fixed MAC, because under --share it is whatever DHCP handed out.
 #
 # The profile is bound to the gadget's MAC, not to an interface name: the kernel
 # names the interface after the USB bus path, which changes with the port. The
@@ -15,13 +24,17 @@
 set -euo pipefail
 
 HOST_MAC=42:61:72:6b:6f:54   # host_addr in tools/r36-usbnet
+DEV_MAC=42:61:72:6b:6f:53   # dev_addr, what the handheld's usb0 answers with
 HOST_IP=10.44.44.2/24
 CON=r36-usb
 WAIT=0
+SHARE=0
 
 while [ $# -gt 0 ]; do
   case $1 in
     -w|--wait) WAIT=${2:?-w needs seconds}; shift 2 ;;
+    --share) SHARE=1; shift ;;
+    --files) SHARE=0; shift ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) IF=$1; shift ;;
   esac
@@ -51,10 +64,18 @@ fi
 # Recreated rather than edited, so an older version of this script cannot leave
 # a stale address or a DHCP setting behind.
 nmcli -t -f NAME con show | grep -qx "$CON" && nmcli con delete "$CON" >/dev/null
-nmcli con add type ethernet con-name "$CON" mac "$HOST_MAC" \
-  ipv4.method manual ipv4.addresses "$HOST_IP" ipv4.never-default yes ipv6.method ignore \
-  connection.autoconnect yes connection.autoconnect-priority 10 >/dev/null
-echo "profile '$CON' -> MAC $HOST_MAC, $HOST_IP"
+if [ "$SHARE" = 1 ]; then
+  nmcli con add type ethernet con-name "$CON" mac "$HOST_MAC" \
+    ipv4.method shared ipv4.never-default yes ipv6.method ignore \
+    connection.autoconnect yes connection.autoconnect-priority 10 >/dev/null
+  echo "profile '$CON' -> MAC $HOST_MAC, sharing this PC's connection"
+  echo "on the handheld: r36-usbnet internet"
+else
+  nmcli con add type ethernet con-name "$CON" mac "$HOST_MAC" \
+    ipv4.method manual ipv4.addresses "$HOST_IP" ipv4.never-default yes ipv6.method ignore \
+    connection.autoconnect yes connection.autoconnect-priority 10 >/dev/null
+  echo "profile '$CON' -> MAC $HOST_MAC, $HOST_IP"
+fi
 
 deadline=$(( $(date +%s) + WAIT ))
 while :; do
@@ -89,4 +110,22 @@ fi
 
 nmcli device connect "$IF" >/dev/null 2>&1 || nmcli con up "$CON" >/dev/null
 echo "$IF up, $(ip -4 -br addr show "$IF" | awk '{print $3}')"
-echo "now: ssh r36a"
+
+# Where the handheld is depends on who is serving. Broadcast pings are no help -
+# most hosts ignore them - so ask the source that actually knows.
+if [ "$SHARE" = 1 ]; then
+  # NetworkManager's dnsmasq for a shared connection writes its leases here
+  LEASES=/var/lib/NetworkManager/dnsmasq-$IF.leases
+  DEV=$(awk -v m="$DEV_MAC" 'tolower($2)==m {print $3}' "$LEASES" 2>/dev/null | tail -1)
+  [ -n "$DEV" ] || echo "no lease yet in $LEASES - run 'r36-usbnet internet' on the handheld"
+else
+  DEV=10.44.44.1   # where r36-usbnet puts it when the handheld serves
+  ping -c 2 -W 2 "$DEV" >/dev/null 2>&1 || {
+    echo "$DEV does not answer - is the gadget up on its side?"
+    DEV=""
+  }
+fi
+if [ -n "$DEV" ]; then
+  echo "handheld at $DEV -> ssh ark@$DEV"
+  [ "$DEV" = "10.44.44.1" ] && echo "  (which is what ssh/config.example calls r36a)"
+fi

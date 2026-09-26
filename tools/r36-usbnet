@@ -19,6 +19,16 @@
 #   r36-usbnet stop                  unload it, put the port back
 #   r36-usbnet try                   walk the list until the host takes a DHCP
 #                                    lease; safe to run over the link itself
+#   r36-usbnet internet [seconds]    ask the PC for an address instead of handing
+#                                    one out, so its connection can be shared -
+#                                    PortMaster and apt need it. Reverts to
+#                                    serving on its own if nothing answers, so
+#                                    it is safe to run over the link itself.
+#   r36-usbnet files                 back to serving: 10.44.44.1 and DHCP
+case "${1:-}" in
+  -h|--help|help) sed -n '/^#   r36-usbnet/,/^#   r36-usbnet files/p' "$0" | sed 's/^# *//'; exit 0 ;;
+esac
+
 # Everything below needs root - modprobe, ip, dnsmasq, and ping, which is
 # neither setuid nor capability-granted on this image.
 [ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
@@ -108,8 +118,55 @@ wait_for_host() {
   return 1
 }
 
+# Addressing only - the gadget stays loaded, so neither of these needs the cable
+# pulled. That is the whole reason they are safe to run over the link.
+serve() {
+  kill "$(cat $PIDFILE 2>/dev/null)" 2>/dev/null
+  rm -f $PIDFILE
+  ip addr flush dev usb0 2>/dev/null
+  ip addr add $ADDR dev usb0
+  ip link set usb0 up
+  rm -f $LEASES
+  dnsmasq --interface=usb0 --bind-interfaces --except-interface=lo \
+    --port=0 --dhcp-range=$RANGE --dhcp-option=3 --dhcp-option=6 \
+    --pid-file=$PIDFILE --dhcp-leasefile=$LEASES --conf-file=/dev/null
+  say "serving on $ADDR again"
+}
+
+ask_pc() {
+  local wait=${1:-60}
+  ip link show usb0 >/dev/null 2>&1 || { say "no usb0 - start the gadget first"; return 1; }
+  kill "$(cat $PIDFILE 2>/dev/null)" 2>/dev/null   # our DHCP server has to go first
+  rm -f $PIDFILE
+  pkill -f "dhclient.*usb0" 2>/dev/null
+  ip addr flush dev usb0 2>/dev/null
+  ip link set usb0 up
+  say "asking the PC for an address (up to $wait s)"
+  timeout "$wait" dhclient -1 -v usb0 >>"$LOG" 2>&1
+  local got
+  got=$(ip -4 -o addr show usb0 | awk '"'"'{print $4}'"'"')
+  if [ -n "$got" ]; then
+    say "got $got, gateway $(ip route show dev usb0 | awk '"'"'/default/{print $3}'"'"')"
+    if ping -c 2 -W 3 8.8.8.8 >/dev/null 2>&1; then
+      say "internet reachable"
+      timedatectl set-ntp 1 2>/dev/null
+      return 0
+    fi
+    say "address but no route out - is the PC actually sharing?"
+  else
+    say "no address from the PC"
+  fi
+  return 1
+}
+
 case "${1:-start}" in
   start) stop; start "${2:-ncm}" ;;
+  files) serve ;;
+  internet)
+    if ask_pc "${2:-60}"; then exit 0; fi
+    say "falling back to serving, so ssh comes back"
+    serve
+    exit 1 ;;
   stop)  stop; say "stopped" ;;
   try)
     # The host only notices a mode change when the cable is pulled, so this is

@@ -157,6 +157,12 @@ display is only used to verify.
   `Failed to set thread to high priority` is real and unavoidable without changing the system's
   limits. `nice -n -19` does work (it returns -19), so both port scripts now ask for it, as ArkOS's
   own 123 commands do. Not measured yet: the real latency floor, which needs MIDI to create load.
+- **The cable can carry internet too**, which is what PortMaster and `apt` need:
+  `scripts/usb-net-host.sh --share` on the PC and `r36-usbnet internet` on the handheld. Addressing
+  only - the gadget stays loaded, so no replug - and the handheld falls back to serving on 10.44.44.1
+  if nothing answers, which makes it safe to run over the link it changes. Measured: 16 ms to
+  8.8.8.8, `curl https://github.com` -> 200. Note the handheld is then on a DHCP address, not the
+  10.44.44.1 that `ssh/config.example` calls `r36a`.
 - Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built
   into the kernel, the host role works, but nothing has enumerated yet. A Dell WD19 fails on PD it
   cannot negotiate; a DDJ-FLX4 froze the device even on external power (suspect dwc2's host path with
