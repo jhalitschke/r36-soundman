@@ -26,6 +26,13 @@ for so in cores/*/*_libretro.so; do
   scp "$so" "$HOST:$CORES/"; scp "${so%.so}.info" "$HOST:$INFO/" || true
 done
 
+# Appended to our systems' RetroArch command only: it takes the sound card
+# exclusively to get under the 42.7 ms that ArkOS's dmix imposes, and ArkOS's
+# own emulators have no business being dragged along. See README, phase 5.
+RACFG=$(dirname "$CORES")/r36-lowlatency.cfg
+scp es/retroarch-lowlatency.cfg "$HOST:$RACFG"
+echo "-> $RACFG"
+
 echo "== es_systems"
 # ES reads ~/.emulationstation/es_systems.cfg before /etc, so patch the one it
 # actually uses - inventory.sh records the same thing.
@@ -35,8 +42,8 @@ echo "-> $ES"
 scp "$HOST:$ES" "$OUT/es_systems.cfg"
 # --cores: the directory the .so really went into, instead of letting es-merge
 # derive a second one from the device file (which may be the 32-bit RetroArch).
-python3 scripts/es-merge.py "$OUT/es_systems.cfg" es/systems/*.xml --cores "$CORES" \
-  > "$OUT/es_systems.merged.cfg"
+python3 scripts/es-merge.py "$OUT/es_systems.cfg" es/systems/*.xml \
+  --cores "$CORES" --append "$RACFG" > "$OUT/es_systems.merged.cfg"
 scp "$OUT/es_systems.merged.cfg" "$HOST:/tmp/es_systems.cfg"
 
 # The rom directories come from the fragments, so a new system cannot be

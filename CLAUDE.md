@@ -126,7 +126,9 @@ display is only used to verify.
   (2 underruns at 5 ms, 8 at 4, 113 at 2). Between 8 and 16 single underruns wander and do not track
   the buffer - 16 ms is a margin choice, not a measured optimum. The cost is exclusive use of the
   card, which costs nothing here since ES is stopped while a core runs.
-  Not yet applied anywhere: measured with `--appendconfig`, the device's `retroarch.cfg` is untouched.
+  Applied to our systems only: `es/retroarch-lowlatency.cfg` is deployed as
+  `~/.config/retroarch/r36-lowlatency.cfg` and `{{APPEND}}` in the RetroArch fragments turns into the
+  `--appendconfig` for it - 3 of the device's 129 systems, and its `retroarch.cfg` keeps its checksum.
 - All of that was measured on **silence** - no MIDI hardware, so the core emits nothing. Underrun
   counts are meaningful, "does it sound clean" is not answered.
 - A cross-built .so sits where a host build would, so the core tests check the ELF's architecture and

@@ -404,9 +404,19 @@ Where it stops working, from 45-second runs counting `snd_pcm_recover` in the lo
 
 Below 8 ms it comes apart, monotonically and unmistakably. Between 8 and 16 the single underruns move
 around and do not track the buffer size - one sample each is not enough to rank them, and reading an
-order into 0-versus-1 would be inventing a result. **16 ms** is the recommendation on margin rather
-than on measurement: more headroom against scheduling jitter, still a fifth of what dmix imposes and
-well inside the 40 ms the checkpoint cares about.
+order into 0-versus-1 would be inventing a result. **16 ms** is the choice on margin rather than on
+measurement: more headroom against scheduling jitter, still a fifth of what dmix imposes and well
+inside the 40 ms the checkpoint cares about.
+
+It is applied to our systems and to nothing else. `es/retroarch-lowlatency.cfg` goes to the device
+as `~/.config/retroarch/r36-lowlatency.cfg`, and `{{APPEND}}` in the RetroArch fragments becomes the
+`--appendconfig` that names it - so three of the device's 129 systems carry it and ArkOS's emulators
+keep the mixer they were written for. The device's own `retroarch.cfg` is not touched at all; its
+checksum is the same before and after a deploy. Running the command ES will run gives:
+
+    [ALSA]: Using FLOAT_LE sample format for PLAYBACK device "plughw:0,0"
+    [ALSA]: Period: 4 periods per buffer (192 frames, 1536 bytes)
+    [ALSA]: Buffer size: 768 frames (6144 bytes)
 
 What this costs: dmix exists so several programs can play at once, and going direct takes the card
 exclusively. That is no loss here - `run.sh` and the ES commands stop EmulationStation anyway, and a

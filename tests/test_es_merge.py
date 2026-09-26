@@ -144,6 +144,23 @@ class TestRetroArchProbe(unittest.TestCase):
         self.assertIn("/usr/local/bin/retroarch -L /usr/local/lib/libretro/adl_libretro.so", out)
         self.assertNotIn("retroarch32 -L", out.split("<name>adlib</name>")[1][:400])
 
+    def test_append_adds_one_appendconfig(self):
+        out = merge(BASE, extra=("--append", "/home/ark/.config/retroarch/low.cfg"))
+        cmds = [c.text for c in ET.fromstring(out).iter("command")]
+        ours = [c for c in cmds if "adl_libretro.so" in c]
+        self.assertEqual(len(ours), 1)
+        self.assertIn("--appendconfig /home/ark/.config/retroarch/low.cfg", ours[0])
+        # and the device's own systems are left alone
+        theirs = [c for c in cmds if "snes9x" in c]
+        self.assertTrue(theirs and "--appendconfig" not in theirs[0])
+
+    def test_without_append_the_placeholder_leaves_no_gap(self):
+        out = merge(BASE)
+        ours = [c.text for c in ET.fromstring(out).iter("command") if "adl_libretro.so" in c.text]
+        self.assertNotIn("{{", ours[0])
+        self.assertNotIn("--appendconfig", ours[0])
+        self.assertNotIn("  ", ours[0], "a double space where the argument was")
+
     def test_cores_override_beats_the_device_file(self):
         out = merge(self.BOTH, extra=["--cores", "/home/ark/.config/retroarch/cores"])
         self.assertIn("-L /home/ark/.config/retroarch/cores/adl_libretro.so", out)
@@ -171,7 +188,7 @@ class TestFragments(unittest.TestCase):
                 self.assertEqual(sysel.findtext("path"), "/roms/" + sysel.findtext("name"))
 
     def test_only_known_placeholders(self):
-        allowed = {"{{RA}}", "{{CORES}}", "{{TAIL}}"}
+        allowed = {"{{RA}}", "{{CORES}}", "{{TAIL}}", "{{APPEND}}"}
         for fragment in FRAGMENTS:
             with self.subTest(fragment=fragment.name):
                 found = set(re.findall(r"\{\{[^}]*\}\}", fragment.read_text()))
