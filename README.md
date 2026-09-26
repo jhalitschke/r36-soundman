@@ -299,8 +299,20 @@ come from the fragments' `<path>`, so a new system cannot be forgotten.
 
 ## Phase 4 – Track A (ArkOS/ES)
 
-**4.1 synth (FluidSynth, end-to-end test)** – `fluidsynth` is already on the card (`/bin/fluidsynth`),
-so this is only a `.sf2` in `/roms/synth/` plus a deploy. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
+**4.1 synth (FluidSynth, end-to-end test)** – `fluidsynth` 1.1.11 is already on the card
+(`/bin/fluidsynth`), so this is only a `.sf2` in `/roms/synth/` plus a deploy. The soundfont is
+content, like a ROM: none ships here.
+
+The port already asks for the card directly (`audio.alsa.device=hw:0`), which is the same lesson the
+cores had to be taught, and `-z`/`-c` default to 256x2 = 512 frames, 10.7 ms. It accepts everything
+down to `-z 16` without complaint - but with no soundfont and no MIDI it synthesizes nothing, so that
+measures the driver setup and not the load. The real floor needs a keyboard.
+
+What the runs did settle: **a normal user on this device cannot have realtime priority at all.**
+`RLIMIT_RTPRIO` is 0, which is why fluidsynth says `Failed to set thread to high priority` whatever
+the buffer size. Lowering niceness *does* work - `nice -n -19` returns -19 for `ark` - so the port
+script now does what ArkOS's own 123 commands do and asks for -19. That is the whole of what is
+available here without changing the system's scheduling limits. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
 script (`-z`/`-c`) down until it crackles – that is the device's floor.
 
 **4.2 chiptune (GME core)** – `scripts/build.sh gme`. `cores/gme/Makefile` clones
@@ -315,7 +327,10 @@ cores use - it is upstream's core, not one written to our conventions, so `tests
 not pointed at it. Content goes to `/roms/chiptune/`; a 68-byte VGM of silence, written by hand, is
 enough to prove the path without dragging anyone's game music into the repo.
 
-**4.3 picoloop** – `scripts/build.sh picoloop`. The makefile is settled:
+**4.3 picoloop** – built, deployed and running on r36a: it comes up with its wavetables, mixers and
+SDL GUI, stays there across 14 threads and exits cleanly. It does **not** open the sound card while
+it sits on its config page, which is the first screen and needs **A** to leave - so the audio path is
+the one thing here that a button press has to confirm. `scripts/build.sh picoloop`. The makefile is settled:
 `Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, the Raspberry Pi 1 target. It is SDL2, uses
 fixed-point maths (`-DFIXED`) and compiles only Picosynth, Picodrum, OPL2 and PBSynth, so
 Twytch/Open303/Cursynth need no switching off - they are makefile defines, not `Master.h`. The

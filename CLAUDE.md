@@ -150,6 +150,13 @@ display is only used to verify.
   counts are meaningful, "does it sound clean" is not answered.
 - A cross-built .so sits where a host build would, so the core tests check the ELF's architecture and
   skip rather than fail on a dlopen that reports a foreign binary as a missing file.
+- **picoloop is built and runs on r36a** (`ports/picoloop/picoloop`, aarch64, with `font.ttf` and
+  `font.bmp` beside it). It stays up and exits cleanly but does not open the sound card: its first
+  screen is the config page and **A** leaves it, so the audio path needs a button press to confirm.
+- **No realtime priority on this device**: `RLIMIT_RTPRIO` is 0 for `ark`, so fluidsynth's
+  `Failed to set thread to high priority` is real and unavoidable without changing the system's
+  limits. `nice -n -19` does work (it returns -19), so both port scripts now ask for it, as ArkOS's
+  own 123 commands do. Not measured yet: the real latency floor, which needs MIDI to create load.
 - Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built
   into the kernel, the host role works, but nothing has enumerated yet. A Dell WD19 fails on PD it
   cannot negotiate; a DDJ-FLX4 froze the device even on external power (suspect dwc2's host path with
