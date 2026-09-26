@@ -65,14 +65,17 @@ display is only used to verify.
 
 ## Status
 
-- Done, untested on hardware: all scripts, ES fragments, port scripts, `cores/adl`.
-- `cores/adl` is built on x86 and verified by the harness (`scripts/adl_harness.py`): bank loading,
-  notes via FIFO, pitch, note-off -> silence, levels. Runs in CI, with a demo WAV as an artifact.
-- Open: the makefile name in the picoloop repo (`ports/picoloop/build.sh` lists the candidates), the
-  `LGPT_BIN` path (`ports/lgpt/lgpt.sh`), getting an arm64 `gme_libretro.so` (`cores/gme/`), theme
-  logos.
-- Next engines after `adl`: `opn` (libOPNMIDI, `.wopn`), `mt32` (mt32emu, ROMs in RetroArch's
-  `system/`).
+- Nothing has run on hardware yet. Everything below is verified on the host.
+- Cores: `cores/adl` (OPL3) and `cores/opn` (YM2612) are built on x86 and arm64 and driven by the
+  harness (`scripts/adl_harness.py`): bank loading, notes via FIFO, pitch, note-off -> silence,
+  MIDI wire format, levels, framebuffer. Both run in CI with demo WAVs and screenshots as artifacts.
+  `opn` needs a `.wopn` bank - libOPNMIDI has no embedded one.
+- picoloop is built for arm64 with the makefile and key mapping settled
+  (`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, RtAudio on ALSA, `keys.gptk` from `Master.h`).
+- Logos for every system are in `es/theme/logos/`.
+- Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`), an arm64 `gme_libretro.so` (`cores/gme/`), which
+  theme is installed on the device and where it wants its art, and everything phase 0 answers.
+- Next engine: `mt32` (mt32emu, ROMs in RetroArch's `system/`).
 
 ## Order (do not skip)
 
