@@ -82,9 +82,14 @@ script (`-z`/`-c`) down until it crackles – that is the device's floor.
 libretro/libretro-gme in the container) into `cores/gme/` with its `.info` next to it, deploy.
 Content goes to `/roms/chiptune/`.
 
-**4.3 picoloop** – `scripts/build.sh picoloop`. First put the SDL2 Linux makefile into
-`ports/picoloop/build.sh` (the script lists the ones it finds) and disable Twytch/Open303/Cursynth in
-`Master.h`. The first start asks for the audio device: `default` or `hw:0`.
+**4.3 picoloop** – `scripts/build.sh picoloop`. The makefile is settled:
+`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, the Raspberry Pi 1 target. It is SDL2, uses
+fixed-point maths (`-DFIXED`) and compiles only Picosynth, Picodrum, OPL2 and PBSynth, so
+Twytch/Open303/Cursynth need no switching off - they are makefile defines, not `Master.h`. The
+build script patches RtAudio from PulseAudio to ALSA, because ArkOS has neither PulseAudio nor
+libpulse. The binary is called `PatternPlayer_raspi1_sdl20` and is copied to `picoloop`; `font.ttf`
+and `font.bmp` have to sit next to it. The first screen is the config page (palette, bank, audio
+output); **A** (Left-Ctrl) leaves it.
 
 **4.4 lgpt** – install the port through PortMaster, adjust `LGPT_BIN` in `ports/lgpt/lgpt.sh`. One
 empty `song.lgpt` per project folder under `/roms/lgpt/`.
