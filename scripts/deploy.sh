@@ -59,6 +59,17 @@ ssh "$HOST" "
   for d in $DIRS; do sudo mkdir -p \"\$d\"; sudo chown \"\$(id -un):\$(id -gn)\" \"\$d\"; done
   # An empty .wopl is the marker that lets ES launch the adl core on its
   # embedded bank; a real bank dropped next to it takes precedence.
-  [ -e /roms/adlib/embedded.wopl ] || : > /roms/adlib/embedded.wopl
-  sudo systemctl restart emulationstation"
+  [ -e /roms/adlib/embedded.wopl ] || : > /roms/adlib/embedded.wopl"
+
+# opn has no embedded bank and refuses to start without one, so ship a bank that
+# may be shipped: Doom32x-fixx is MIT and its readme says so, which is more than
+# most WOPN banks can claim. A bank already there - the user's own - is left
+# alone, so this only ever fills an empty system.
+if ssh "$HOST" '[ -e /roms/opn/Doom32x-fixx.wopn ]'; then
+  echo "-> /roms/opn/Doom32x-fixx.wopn is already there"
+else
+  scp cores/opn/Doom32x-fixx.wopn cores/opn/Doom32x-fixx-readme.txt "$HOST:/roms/opn/"
+fi
+
+ssh "$HOST" "sudo systemctl restart emulationstation"
 echo "done. the original is on the device as ${ES}.orig"

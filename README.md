@@ -303,9 +303,17 @@ come from the fragments' `<path>`, so a new system cannot be forgotten.
 so this is only a `.sf2` in `/roms/synth/` plus a deploy. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
 script (`-z`/`-c`) down until it crackles – that is the device's floor.
 
-**4.2 chiptune (GME core, config only)** – put `gme_libretro.so` (arm64: libretro buildbot or build
-libretro/libretro-gme in the container) into `cores/gme/` with its `.info` next to it, deploy.
-Content goes to `/roms/chiptune/`.
+**4.2 chiptune (GME core)** – `scripts/build.sh gme`. `cores/gme/Makefile` clones
+libretro/libretro-gme at a pinned revision and runs its own Makefile with `platform=unix`; the `.info`
+comes from upstream. Unlike `adl` and `opn` this core is not ours and is **GPL-3.0** where ours are
+MIT, which is the reason it is built rather than vendored - the `.so` is gitignored, so nothing here
+redistributes a binary, and `GME_REV` records exactly which source it came from.
+
+Verified on r36a: it refuses to start without content, and with content it comes up at 320x240 / 60
+fps and takes the low-latency device like ours do. Note it runs at **44100 Hz**, not the 48000 our own
+cores use - it is upstream's core, not one written to our conventions, so `tests/core_smoke.py` is
+not pointed at it. Content goes to `/roms/chiptune/`; a 68-byte VGM of silence, written by hand, is
+enough to prove the path without dragging anyone's game music into the repo.
 
 **4.3 picoloop** – `scripts/build.sh picoloop`. The makefile is settled:
 `Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, the Raspberry Pi 1 target. It is SDL2, uses

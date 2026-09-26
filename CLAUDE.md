@@ -112,8 +112,15 @@ display is only used to verify.
 - picoloop is built for arm64 with the makefile and key mapping settled
   (`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, RtAudio on ALSA, `keys.gptk` from `Master.h`).
 - Logos for every system are in `es/theme/logos/`.
-- Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which
-  theme is installed and where it wants its art; and phase 2, which needs hardware.
+- Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); which theme is installed and where it wants its
+  art; and phase 2, which needs hardware.
+- **`cores/gme` is built and runs too**, so ES lists adlib, opn and chiptune. It is libretro's Game
+  Music Emu at a pinned revision, GPL-3.0 against our MIT, built rather than vendored - the `.so` is
+  gitignored so nothing redistributes a binary. It runs at 44100 Hz rather than our 48000, being
+  upstream's core and not written to our conventions, so `core_smoke.py` is not aimed at it.
+- **`cores/opn` ships a bank**: `Doom32x-fixx.wopn`, MIT and explicitly free to redistribute, with its
+  readme beside it. `deploy.sh` places it only when `/roms/opn` has none, so a bank the user drops in
+  is never clobbered. `tests/test_shipped_content.py` guards that the licence travels with it.
 - **`cores/adl` and `cores/opn` both run on r36a**, and ES shows them in the carousel. `opn` has the
   same symbol profile as `adl` (at most `GLIBC_2.29`, `GLIBCXX_3.4.21`) and the three behaviours
   CLAUDE.md distinguishes it by all hold on the hardware: without content RetroArch refuses before

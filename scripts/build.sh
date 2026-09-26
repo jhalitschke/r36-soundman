@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # arm64 builds in the Docker container. One-time on Ubuntu: sudo apt install qemu-user-static binfmt-support
 # scripts/build.sh            -> all targets
-# scripts/build.sh adl        -> one core (adl, opn)
+# scripts/build.sh adl        -> one core (adl, opn, gme)
 # scripts/build.sh picoloop   -> port only
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,8 +16,8 @@ GLIBC_MAX=${GLIBC_MAX:-2.30}   # r36a: Ubuntu 19.10, libc-2.30 (device/<host>/in
 # arm would then be reached by every single target as well.
 TARGET=${1:-all}
 case $TARGET in
-  adl|opn|picoloop|all) ;;
-  *) echo "unknown target: $TARGET (adl, opn, picoloop, all)" >&2; exit 2 ;;
+  adl|opn|gme|picoloop|all) ;;
+  *) echo "unknown target: $TARGET (adl, opn, gme, picoloop, all)" >&2; exit 2 ;;
 esac
 
 docker build --platform linux/arm64 --build-arg UBUNTU="$UBUNTU" -t r36s-build docker/
@@ -28,6 +28,7 @@ run() { docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -e HOM
 case $TARGET in
   adl|all)      run "make -C cores/adl" ;;&
   opn|all)      run "make -C cores/opn" ;;&
+  gme|all)      run "make -C cores/gme" ;;&
   picoloop|all) run "ports/picoloop/build.sh" ;;
 esac
 
