@@ -8,5 +8,5 @@ echo "== aplay -l";    aplay -l
 echo "== amidi -l";    amidi -l
 echo "== aseqdump -l"; aseqdump -l
 echo "== rawmidi";     ls -l /dev/snd/midi* 2>/dev/null || echo "no rawmidi device"
-if [ -n "$PORT" ]; then echo "== aseqdump -p $PORT (5 s, press keys now)"; timeout 5 aseqdump -p "$PORT"; fi
+if [ -n "$PORT" ]; then echo "== aseqdump -p $PORT (5 s, press keys now)"; timeout 5 aseqdump -p "$PORT" || true; fi
 REMOTE

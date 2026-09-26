@@ -68,9 +68,12 @@ Check: notes arrive in `aseqdump`. Only then continue.
     scripts/deploy.sh r36a        # ports/ -> /roms/ports, cores -> libretro_directory, merge ES systems, restart ES
     scripts/run.sh r36a '<cmd>'   # stop ES, run the command in the foreground, start ES
 
-Afterwards the original es_systems.cfg is on the device as
-`/etc/emulationstation/es_systems.cfg.orig`. `{{RA}}` and `{{CORES}}` in the fragments are derived
-from the first RetroArch command in the device file.
+`deploy.sh` patches the es_systems.cfg ES actually reads - the user file in `~/.emulationstation/`
+wins over `/etc/` - and leaves the original next to it as `.orig`. `{{RA}}` and `{{TAIL}}` in the
+fragments come from the device file's own RetroArch command (a 64-bit one is preferred; ArkOS
+usually ships retroarch and retroarch32 with separate core directories), and `{{CORES}}` is the
+`libretro_directory` deploy.sh just copied the core into, not a second guess. The rom directories
+come from the fragments' `<path>`, so a new system cannot be forgotten.
 
 ## Phase 4 – Track A (ArkOS/ES)
 
@@ -113,8 +116,10 @@ will show - most ES themes take a per-system `art/logo.svg`. Until that is known
 
 The core reads `/dev/snd/midiC*D*` itself (override `ADL_MIDI_DEV`), so it does not need a
 MIDI-capable RetroArch. Display: green/red = MIDI device open, 16 bars = channel activity.
-L/R = program, A = panic. Content is optional (a `.wopl` bank in `/roms/adlib/`), without content it
-uses embedded bank 0. The emulator is DOSBox OPL (lighter than Nuked); see `adl_switchEmulator` in
+L/R = program, A = panic. Content is optional: a `.wopl` bank in `/roms/adlib/`, or the empty
+`embedded.wopl` marker deploy.sh puts there, which selects the embedded bank 0 - ES can only launch
+a system through a file, so without the marker the content-free mode is unreachable from the
+carousel. A real but broken bank still fails loudly. The emulator is DOSBox OPL (lighter than Nuked); see `adl_switchEmulator` in
 `adl_libretro.c`.
 
 Further engines are a copy of `cores/adl/` with a different library: libOPNMIDI (`opn2_*`, `.wopn`),

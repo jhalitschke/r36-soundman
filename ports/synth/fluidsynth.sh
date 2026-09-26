@@ -2,8 +2,10 @@
 # FluidSynth as an ES "system": %ROM% = the soundfont. Select+Start quits (gptokeyb kills fluidsynth).
 # Requires fluidsynth + libfluidsynth installed as arm64 .deb (see README phase 4.1)
 controlfolder="/opt/system/Tools/PortMaster"
+[ -f "$controlfolder/control.txt" ] || { echo "PortMaster control.txt not found in $controlfolder" >&2; exit 1; }
 source "$controlfolder/control.txt"
 get_controls
+[ -n "${GPTOKEYB:-}" ] || { echo "control.txt did not set GPTOKEYB" >&2; exit 1; }
 PERIOD=${PERIOD:-256}; COUNT=${COUNT:-2}   # the latency knobs
 cd /roms/synth || exit 1
 $GPTOKEYB "fluidsynth" &

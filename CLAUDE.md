@@ -37,6 +37,8 @@ display is only used to verify.
 
 ## Build
 
+- Upstream sources are pinned by revision (`ADL_REV`, `PICOLOOP_REV`): the measured audio levels
+  and the tests assert absolute numbers.
 - Cross builds only in the Docker container (`docker/Dockerfile`, `scripts/build.sh`), platform
   `linux/arm64`. `UBUNTU` in `scripts/build.sh` has to match the ArkOS base
   (`device/<host>/inventory.txt`, the `lsb_release` line).
@@ -50,9 +52,10 @@ display is only used to verify.
 - Ports: one folder under `ports/<name>/`, launch script following the PortMaster pattern
   (`source control.txt`, `get_controls`, `$GPTOKEYB`, log to `log.txt` in the port folder, `$ESUDO
   kill` at the end). Select+Start always quits.
-- ES systems: one fragment per system in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}` as
-  placeholders, `scripts/es-merge.py` substitutes them from the device file. New systems use
-  `theme="ports"` until logos exist.
+- ES systems: one fragment per system in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}`/`{{TAIL}}` as
+  placeholders, `scripts/es-merge.py` substitutes them from the device file (`{{TAIL}}` carries the
+  device command's own `--config`/`%ROM%`). Logos are in `es/theme/logos/`, but the systems stay on
+  `theme="ports"` until the inventory shows which theme is installed.
 - Cores: `cores/<name>/` with `<name>_libretro.c`, `Makefile`, `<name>_libretro.info`. 48 kHz,
   60 fps, 320x240 RGB565, MIDI straight from `/dev/snd/midiC*D*` (override `<NAME>_MIDI_DEV`), no
   RetroArch MIDI interface.
