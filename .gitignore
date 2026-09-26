@@ -9,3 +9,5 @@ ports/picoloop/lib/
 __pycache__/
 *.wav
 adl-shot-*.png
+ports/picoloop/font.*
+ports/picoloop/patch/
