@@ -126,12 +126,22 @@ for good, and `DOCKER_CONFIG=$(mktemp -d)` works around it without touching anyt
 macOS: Docker Desktop does arm64 without any of this. RNDIS needs HoRNDIS there; CDC-ECM works
 natively.
 
-## Phase 0 – SSH over the cable
+## Phase 0 – SSH over the cable (USB gadget)
 
-ArkOS ships no USB Network Mode of its own, so the gadget comes from
-[ctgl1987/arkos-usb-network-mode](https://github.com/ctgl1987/arkos-usb-network-mode): one script that
-runs from RAM, loads `g_ether` with a fixed MAC, puts **10.44.44.1** on the handheld's `usb0` and
-serves DHCP and SSH from there. Nothing is installed permanently, and its option 5 puts the port back.
+ArkOS has **no USB network entry of its own** - the menu item comes from
+[ctgl1987/arkos-usb-network-mode](https://github.com/ctgl1987/arkos-usb-network-mode), a script that
+has to be on the card first, and that is the one step the cable cannot bootstrap. Nothing is
+installed permanently: the gadget runs from RAM, loads `g_ether` with a fixed MAC, puts **10.44.44.1**
+on the handheld's `usb0`, serves ssh and DHCP from there, and its option 5 puts the port back.
+
+Run **option 1** before anything else. It only reads, and ends in `SUPPORTED`, `SHOULD WORK, BUT...`
+or `NOT SUPPORTED`. A NOT SUPPORTED board becomes the reference device (`r36b`) - though read the
+otg-port section below before believing it, because that check does not look at the PHY.
+
+Once it works, upstream's `sudo ./setup-linux.sh` is worth running on the host: it pins the gadget to
+the name `arkos0` by udev rule - the kernel otherwise names it after the USB bus path, which changes
+with the port - and stops NetworkManager inventing a fresh "Wired connection N" on every reconnect.
+`scripts/usb-net-host.sh` does not need it, but nothing here is harmed by it either.
 
 Installed with a card reader, because without the cable there is no other way in. Handheld off, card
 in the host; the ROMs partition is `EASYROMS` (exFAT, mounted `fmask=0022`, so the file is executable
