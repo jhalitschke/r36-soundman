@@ -114,6 +114,13 @@ display is only used to verify.
 - Logos for every system are in `es/theme/logos/`.
 - Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which
   theme is installed and where it wants its art; and phase 2, which needs hardware.
+- **`cores/adl` and `cores/opn` both run on r36a**, and ES shows them in the carousel. `opn` has the
+  same symbol profile as `adl` (at most `GLIBC_2.29`, `GLIBCXX_3.4.21`) and the three behaviours
+  CLAUDE.md distinguishes it by all hold on the hardware: without content RetroArch refuses before
+  loading it (`supports_no_game = false`), an empty file fails loudly
+  (`bank: Custom bank: Unexpected ending!`) rather than falling back the way `adl`'s marker does, and
+  a real `.wopn` loads with `Gain 4.00`. Bank for the test: `xg.wopn`, whose readme puts it in the
+  freely redistributable camp, as does the MIT `Doom32x-fixx.wopn`.
 - **`cores/adl` runs on r36a.** Deployed with `deploy.sh`, started with `run.sh`: `ldd` resolves
   every library on the device, the empty `embedded.wopl` selects the embedded bank as designed, the
   AV info comes out at 320x240 / 60 fps / 48 kHz, ALSA takes the output, and 1422 frames went out in

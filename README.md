@@ -347,7 +347,15 @@ carousel. A real but broken bank still fails loudly. The emulator is DOSBox OPL 
 
 `cores/opn` is that same core with libOPNMIDI: YM2612/OPN2 instead of OPL3, MAME emulator instead of
 DOSBox, gain 4 instead of 6. One difference matters on the device: **libOPNMIDI has no embedded
-bank**, so `opn` refuses to start without content. Put a `.wopn` in `/roms/opn/` - libOPNMIDI ships
+bank**, so `opn` refuses to start without content. Confirmed on r36a, all three cases:
+
+    no content    [ERROR] [Content]: Libretro core requires content, but nothing was provided.
+    empty file    [libretro ERROR] [opn] bank: Custom bank: Unexpected ending!
+    real bank     [libretro INFO] [opn] bank /roms/opn/xg.wopn / Gain 4.00
+
+The middle one is the one to keep an eye on when the next core is copied from this one: `adl` treats
+an empty file as "use the embedded bank", `opn` has nothing to fall back to and says so. A core that
+quietly played silence instead would be the worst of both. Put a `.wopn` in `/roms/opn/` - libOPNMIDI ships
 twelve in `fm_banks/` (check their individual licences before shipping one) or build your own with
 the WOPN editor. The next engine is the same copy again with mt32emu, whose ROMs go into RetroArch's
 `system/`.
