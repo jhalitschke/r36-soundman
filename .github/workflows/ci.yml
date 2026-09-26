@@ -17,12 +17,12 @@ jobs:
 
       - name: bash -n (host and device scripts)
         run: |
-          for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
+          for f in scripts/*.sh ports/*/*.sh tools/*.sh; do bash -n "$f"; done
 
       - name: shellcheck
         # severity=warning: the info-level notes of the PortMaster scripts (SC1091
         # on control.txt, SC2012) are part of the pattern, not a defect.
-        run: shellcheck --severity=warning scripts/*.sh ports/*/*.sh
+        run: shellcheck --severity=warning scripts/*.sh ports/*/*.sh tools/*.sh
 
       - name: python syntax
         run: python3 -m compileall -q scripts tests

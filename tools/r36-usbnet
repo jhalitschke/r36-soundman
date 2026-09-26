@@ -1,0 +1,126 @@
+#!/bin/bash
+# USB Ethernet gadget for the R36S. Installed to /usr/local/bin on the device.
+#
+# Three ways to be an ethernet gadget, in descending order of how well a Linux
+# host copes:
+#
+#   ncm   g_ncm, bound by cdc_ncm. Its own module, so nothing has to be talked
+#         out of a default, and it carries the host MAC.
+#   ecm   g_ether use_eem=0, bound by cdc_ether. Only exists if this kernel
+#         build has the parameter at all - ArkOS builds with
+#         CONFIG_USB_ETH_EEM=y and the parameter may be absent, in which case
+#         modprobe refuses and we move on.
+#   eem   g_ether as built, offering EEM plus RNDIS. The host picks RNDIS,
+#         where cdc_subset can bind the data interface before rndis_host claims
+#         it for the handshake - the link then comes up carrying nothing and
+#         the host needs "modprobe -r cdc_subset" and a replug. Last resort.
+#
+#   r36-usbnet start [ncm|ecm|eem]   load the gadget and serve ssh + DHCP
+#   r36-usbnet stop                  unload it, put the port back
+#   r36-usbnet try                   walk the list until the host takes a DHCP
+#                                    lease; safe to run over the link itself
+# Everything below needs root - modprobe, ip, dnsmasq, and ping, which is
+# neither setuid nor capability-granted on this image.
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+
+DEV_MAC=42:61:72:6b:6f:53
+HOST_MAC=42:61:72:6b:6f:54
+ADDR=10.44.44.1/24
+HOST_IP=10.44.44.2   # what scripts/usb-net-host.sh puts on the PC
+RANGE=10.44.44.10,10.44.44.100,12h
+PIDFILE=/tmp/dnsmasq-usbnet.pid
+LEASES=/tmp/usbnet.leases
+LOG=/roms/usbnet-switch.log
+
+say() { echo "$(date -Iseconds) $*" >> "$LOG"; echo "$*"; }
+
+stop() {
+  kill "$(cat $PIDFILE 2>/dev/null)" 2>/dev/null
+  rm -f $PIDFILE
+  ip addr flush dev usb0 2>/dev/null
+  ip link set usb0 down 2>/dev/null
+  rmmod g_ncm g_ether 2>/dev/null
+  # the function modules hold the old shape if they stay loaded
+  rmmod usb_f_ncm usb_f_eem usb_f_ecm usb_f_rndis 2>/dev/null
+  sleep 1
+}
+
+supports() {
+  case "$1" in
+    ncm) [ -n "$(modinfo -n g_ncm 2>/dev/null)" ] ;;
+    ecm) modinfo -p g_ether 2>/dev/null | grep -q '^use_eem' ;;
+    eem) [ -n "$(modinfo -n g_ether 2>/dev/null)" ] ;;
+  esac
+}
+
+load() {
+  case "$1" in
+    ncm) modprobe g_ncm  dev_addr=$DEV_MAC host_addr=$HOST_MAC \
+           iProduct=R36S iManufacturer=ArkOS ;;
+    ecm) modprobe g_ether use_eem=0 dev_addr=$DEV_MAC host_addr=$HOST_MAC \
+           iProduct=R36S iManufacturer=ArkOS ;;
+    eem) modprobe g_ether dev_addr=$DEV_MAC host_addr=$HOST_MAC \
+           iProduct=R36S iManufacturer=ArkOS ;;
+    *)   return 1 ;;
+  esac
+}
+
+start() {
+  local mode=${1:-ncm}
+  supports "$mode" || { say "$mode: not available in this kernel"; return 1; }
+  load "$mode" || { say "$mode: modprobe refused"; return 1; }
+  sleep 2
+  ip link show usb0 >/dev/null 2>&1 || { say "$mode: usb0 did not appear"; return 1; }
+  ip addr flush dev usb0 2>/dev/null
+  ip addr add $ADDR dev usb0
+  ip link set usb0 up
+  systemctl start ssh
+  rm -f $LEASES
+  # a convenience for a PC without a static address; not required, and it does
+  # not survive this script's systemd service being torn down
+  dnsmasq --interface=usb0 --bind-interfaces --except-interface=lo \
+    --port=0 --dhcp-range=$RANGE --dhcp-option=3 --dhcp-option=6 \
+    --pid-file=$PIDFILE --dhcp-leasefile=$LEASES --conf-file=/dev/null
+  say "$mode: gadget up on $ADDR"
+}
+
+# Proof that the link carries traffic, not just that it exists: the UDC reads
+# "configured" and the host shows a carrier even when nothing gets through. A
+# DHCP lease would prove it too, but only while dnsmasq is alive - and it is a
+# process, so it dies with this script's service. A ping to the host's fixed
+# address depends on nothing but the wire.
+wait_for_host() {
+  local n=${1:-40}
+  for _ in $(seq 1 "$n"); do
+    ping -c 1 -W 1 -I usb0 $HOST_IP >/dev/null 2>&1 && return 0
+    [ -s $LEASES ] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+case "${1:-start}" in
+  start) stop; start "${2:-ncm}" ;;
+  stop)  stop; say "stopped" ;;
+  try)
+    # The host only notices a mode change when the cable is pulled, so this is
+    # not an automatic walk: replug once per mode while the window is open. The
+    # last mode in the list is the one left loaded if none of them answered, so
+    # put the known-good one there.
+    shift
+    MODES=${*:-ncm ecm eem}
+    say "=== try: $MODES (replug the cable while each one is being waited for)"
+    for m in $MODES; do
+      supports "$m" || { say "$m: skipped, not in this kernel"; continue; }
+      stop
+      start "$m" || continue
+      if wait_for_host 60; then
+        say "$m: HOST ANSWERED - staying here"
+        exit 0
+      fi
+      say "$m: no answer from the host within 60 s"
+    done
+    say "none answered; the last one ($(echo "$MODES" | awk "{print \$NF}")) is loaded - replug"
+    exit 1 ;;
+  *) sed -n '/^#   r36-usbnet/,/^#  *lease/p' "$0" | sed 's/^# *//'; exit 2 ;;
+esac

@@ -13,11 +13,12 @@ parsing are verified on the host and in CI.
 
 ## Layout
 
-    scripts/      host tools (usb-net-host, inventory, diag, run, build, deploy, adl_harness)
+    scripts/      host tools (usb-net-host, dtb-otg, inventory, diag, run, build, deploy, adl_harness)
     ssh/          example for ~/.ssh/config (r36a, r36b)
     docker/       arm64 build container
     es/systems/   ES system fragments, merged into the device file by es-merge.py
     ports/        launch scripts following the PortMaster pattern -> /roms/ports/<name>/
+    tools/        device-side scripts for the ES Options menu -> /roms/tools/
     cores/        libretro cores (adl = OPL3 via libADLMIDI, opn = YM2612 via libOPNMIDI)
     tests/        hardware-free tests (ES merge, core API, core audio)
     device/<h>/   per device: inventory + copies of es_systems.cfg (gitignored)
@@ -30,28 +31,210 @@ parsing are verified on the host and in CI.
 macOS: Docker Desktop does arm64 without the qemu package. RNDIS needs HoRNDIS there; CDC-ECM works
 natively.
 
-## Phase 0 – SSH over the cable (RNDIS)
+## Phase 0 – SSH over the cable
 
-1. Handheld: Options -> enable USB Network Mode, USB-C cable to the host.
-2. `scripts/usb-net-host.sh` (puts 192.168.7.2/24 on usb0/enx*).
-3. `ssh ark@192.168.7.1` (password `ark`), then `ssh-copy-id r36a`.
-4. No interface shows up: https://github.com/ctgl1987/arkos-usb-network-mode, option 1 checks whether
-   the board can do device mode at all. A NOT SUPPORTED device becomes the reference device.
+ArkOS ships no USB Network Mode of its own, so the gadget comes from
+[ctgl1987/arkos-usb-network-mode](https://github.com/ctgl1987/arkos-usb-network-mode): one script that
+runs from RAM, loads `g_ether` with a fixed MAC, puts **10.44.44.1** on the handheld's `usb0` and
+serves DHCP and SSH from there. Nothing is installed permanently, and its option 5 puts the port back.
 
-Check: `scripts/inventory.sh r36a` completes and writes `device/r36a/`. `inventory.txt` is only
-written on success (an abort never overwrites a good inventory) and also records: `sudo` behaviour,
-the ES systemd unit, both RetroArch configs (64/32 bit), which `es_systems.cfg` is the effective one,
-and whether `r8152`/`cdc_ether` exist as a module, built in (`modules.builtin`) or loaded (`lsmod`).
+Installed with a card reader, because without the cable there is no other way in. Handheld off, card
+in the host; the ROMs partition is `EASYROMS` (exFAT, mounted `fmask=0022`, so the file is executable
+where it lands) and the boot partition is `BOOT`:
+
+    cp "USB Network Mode.sh" /run/media/$USER/EASYROMS/tools/
+    scripts/dtb-otg.py /run/media/$USER/BOOT/*.dtb            # report
+    scripts/dtb-otg.py --write /run/media/$USER/BOOT/rk3326-r36sPlus-linux.dtb \
+                               /run/media/$USER/BOOT/gameconsole_linux.dtb
+
+The second command is not optional on an R36S – see below. Patch the DTBs that `boot.ini` and
+`boot01.ini` name, then it does not matter which one u-boot reads. `.orig` copies are left next to
+them.
+
+On the host, once:
+
+    echo 'blacklist cdc_subset' | sudo tee /etc/modprobe.d/r36-no-cdc-subset.conf
+    scripts/usb-net-host.sh -w 60
+
+The blacklist is not optional: `cdc_subset` claims the device id `0525:a4a2` wholesale and can bind
+the data interface before `rndis_host` claims it for the RNDIS handshake, leaving a link that carries
+nothing. The script then creates a NetworkManager profile with a static 10.44.44.2, bound to the
+gadget's MAC rather than to an interface name - the kernel names the interface after the USB bus
+path, which changes with the port. Upstream's `setup-linux.sh` solves the naming with a udev rule and
+needs root; this does not.
+
+Then, in this order, because each step is forced by something further down:
+
+1. Boot the handheld. `tools/r36-usbnet.service` brings the gadget up with ssh and a DHCP server.
+2. **Then** plug the cable in - **into a hub**, never a port on the PC's own xHCI controller.
+3. `ssh r36a`.
+
+Both parts of step 2 are load-bearing. A root port does not enumerate this gadget at all, and the
+cable has to go in *after* the gadget is loaded: with `dr_mode = "peripheral"` the controller sees
+the VBUS session during boot, when nothing is bound yet, and never re-asserts its pull-up. Replugging
+is also the only way to change anything about the gadget - see below.
+
+The device side is `tools/r36-usbnet`, installed to `/usr/local/bin`. It loads `g_ether`, puts
+10.44.44.1 on `usb0` and starts sshd and dnsmasq. Its unit needs `KillMode=process`: the script
+starts dnsmasq and exits, and with the default the whole control group goes down with it, taking the
+DHCP server along - which looks exactly like a dead link from the PC. The static address on the host
+means that no longer matters, which is why it is static.
+
+### The otg-port trap
+
+On this card all six DTBs describe the dwc2 controller correctly and then take its PHY away:
+
+    /usb@ff300000                           dr_mode  = "otg"       ok
+    /usb@ff300000                           status   = "okay"      ok
+    /usb@ff300000                           phys     = <0x8b>
+    /syscon@ff2c0000/usb2-phy@100/otg-port  phandle  = <0x8b>
+    /syscon@ff2c0000/usb2-phy@100/otg-port  status   = "disabled"  <-
+
+`phys` points at exactly the port the device tree switches off, and the Rockchip PHY driver skips
+disabled child nodes, so the OTG port is never registered and dwc2 is never told that a host is on
+the cable. Every check that only looks at `dr_mode` passes, which is why the symptom is
+indistinguishable from a charge-only cable or unwired data lines – and why upstream's troubleshooting
+ends up suggesting `dr_mode = "peripheral"`.
+
+`scripts/dtb-otg.py` sets that one property to `okay`. It keeps the property length (the kernel reads
+`status` with `strcmp`, so `okay` plus NUL padding still reads as `okay`), which means no offset in
+the DTB has to be recomputed: the file keeps its size and 8 bytes change. It writes `<dtb>.orig`
+first, reads the result back and restores the backup if the check fails. `tests/test_dtb_otg.py`
+builds a DTB and asserts all of that without a card in the reader.
+
+Host mode on that port survives the change: with `dr_mode = "otg"` and a working PHY the ID pin
+decides, so an OTG hub still comes up as host – which is what phase 1 needs.
+
+### When the controller stays host
+
+Enabling the PHY is not always enough. With `dr_mode = "otg"` the role comes from the ID pin, and on
+boards where nothing pulls it low the controller stays host: a UDC exists, `g_ether` loads, `usb0`
+gets its address – and the UDC never leaves `not attached`, because from its point of view no host
+ever showed up. The tell is that the handheld *powers* what you plug into that port.
+
+    scripts/dtb-otg.py --write --dr-mode peripheral /run/media/$USER/BOOT/<dtb>
+
+That forces the gadget role. The price is host mode on that port: no OTG hub, so phase 1 has to move
+to the other USB-C port or wait. Both DTBs on the card can be patched differently – then the `load
+mmc 1:1 ${dtb_loadaddr} <file>` line in `boot.ini` is the switch between "device" and "host".
+
+`dr_mode` grows from 4 to 11 bytes, so this one cannot be an in-place edit like the status patch: the
+struct block is rebuilt and every offset in the header recomputed. Verified against the card's own
+89 KB DTB – 2619 properties, structure and order unchanged, exactly the two intended values
+different, `totalsize` matching the file.
+
+What the phy driver also offers, and what it is worth: `otg_mode` under
+`/sys/devices/platform/*syscon*/*usb2-phy*/`. It takes `host`, `peripheral` and `otg` at runtime, but
+with `dr_mode = "peripheral"` already in the devicetree the driver answers `Same as current mode` and
+does nothing – the devicetree has settled it at probe time. The sysfs knob is only interesting on a
+card whose DTB has not been patched.
+
+### Reading the signals in the right order
+
+Three sources disagree on this hardware, and only two of them mean anything:
+
+| source | on r36a | worth |
+|---|---|---|
+| `extcon` | `USB=0 USB_HOST=1 USB_VBUS_EN=1`, permanently | **none** |
+| `/sys/class/udc/*/state` | `not attached` | the device's own verdict |
+| the *host's* `dmesg` | `Cannot enable. Maybe the USB cable is bad?` | what actually happens on the wire |
+
+The extcon flags keep claiming host role and VBUS output while the phy driver reports peripheral, and
+the devicetree has neither a `vbus-supply` nor any regulator that could switch VBUS – one
+`regulator-fixed` for `vcc3v8_sys`, always on, no GPIO. So the flags describe nothing the driver can
+even do. Upstream says as much in its own README; it is worth believing the first time.
+
+The host's kernel log is the source that was missing longest, because `kernel.dmesg_restrict` hides
+it from an unprivileged shell. `sudo dmesg -W` on the PC while plugging in is the single most
+informative thing available – it is the only place where the failure is described rather than
+implied.
+
+### The root port fails, the hub works
+
+On r36a the gadget never enumerated on a port of the laptop's own xHCI controller - `Cannot enable.
+Maybe the USB cable is bad?`, `attempt power cycle`, `unable to enumerate USB device`, over and over.
+Plugged into a hub instead (any hub - a dock counts) it enumerated on the first try. xHCI root ports
+are strict about the high-speed chirp handshake; a USB 2.0 hub runs that handshake itself and is far
+more forgiving. This is the first thing to try, before doubting the board.
+
+### cdc_subset steals the RNDIS data interface
+
+Enumerated is not connected. g_ether offers two configurations, and with `use_eem=1` - which is what
+this firmware loads - they are:
+
+    config 1   02/0c/07   CDC EEM
+    config 2   e0/01/03 + 0a/00/00   RNDIS: control + data
+
+The host picks config 2. `cdc_subset` claims the device id `0525:a4a2` wholesale, gets probed first
+and binds the *data* interface; `rndis_host` then cannot claim it, so the RNDIS INITIALIZE handshake
+never happens. The link comes up and carries nothing: `NETDEV WATCHDOG: transmit queue 0 timed out`,
+zero valid packets, and rx_errors climbing by about 170 a second.
+
+The fix is to keep `cdc_subset` off it. With the module unloaded, `rndis_host` binds both interfaces
+by itself and the host interface takes the gadget's `host_addr` - RNDIS transfers it, while EEM and
+the CDC subset leave the host to invent a random MAC, which is why a profile matched on that MAC only
+starts working here.
+
+    modprobe -r cdc_subset      # then replug
+
+### The host picks RNDIS on purpose
+
+`g_ether use_eem=0` makes config 1 a CDC ECM, and a Linux host still takes config 2 and binds
+`rndis_host`. That is not a race and not a bug: `usb_choose_configuration()` deliberately prefers an
+RNDIS configuration whenever `CONFIG_USB_NET_RNDIS_HOST` is available. As long as `g_ether` offers
+RNDIS at all, RNDIS is what gets used, and `cdc_ether` never gets a look in.
+
+So `ecm` here buys one thing only - the configuration the host ignores is a standard ECM rather than
+an EEM. The link itself runs on RNDIS either way, cleanly: `rx_errors` 0, 0.5 ms round trip. Getting
+ECM actually bound would mean a gadget that offers no RNDIS config at all, which means `g_ncm` or
+building one by hand through configfs. Not worth it while this works.
+
+### Reloading the gadget is not a reconnect
+
+Swapping the gadget module on the device does not make the host re-enumerate. A `try` run walked
+ncm -> ecm -> eem, reloading three times over four minutes, and the host's view never moved off
+`0525:a4a2 cfg=2 rndis_host` - the device it first saw. rx_errors climbed steadily to 48000 the whole
+time, because the PC kept talking to a gadget that had been unloaded underneath it. dwc2 on this BSP
+kernel does not drop the D+ pull-up when the UDC is unbound, so the disconnect the host needs never
+happens.
+
+Consequences, and they are not small:
+
+- **Only pulling the cable counts.** Every mode change has to be followed by a physical replug.
+- **Walking the modes automatically is pointless here** - the host sees none of them.
+- The `I/O error` from a `SET_CONFIGURATION` or a driver bind is the same thing seen from the other
+  side: a control transfer to a gadget that is no longer there.
+
+So pick one mode, set it at boot, and plug the cable in afterwards. One deliberate handle, forced by
+the hardware, instead of a retry loop that cannot work.
+
+### What an external hard disk does not prove
+
+A USB-C cable that works for an external disk says nothing about this. The disk runs at SuperSpeed
+over the TX/RX pairs; the gadget is High-Speed and uses **only D+/D-**. A cable can have perfect
+SuperSpeed pairs and a dead USB 2.0 pair, and nothing you normally plug in would notice. Test a
+suspect cable with something that is USB 2.0 – a phone in file-transfer mode. A USB-C-to-A cable also
+carries a 56 kΩ pull-up in its C plug, which tells the handheld that a host is on the other end, so
+it answers the cable question and the role question at once.
+
+### Debugging without SSH
+
+Until the cable works there is no shell on the device, so `tools/USB Diag.sh` goes next to the other
+one in `EASYROMS/tools/` and writes to `/roms/usbnet-diag.txt`, which is readable from a card reader.
+It reports what the *booted* devicetree says (so a patch that never took effect cannot be mistaken for
+a hardware limit), every UDC and its state, the dwc2 and usb2phy sysfs trees, the loaded gadget
+modules, `usb0`, DHCP leases, extcon and the relevant `dmesg` lines.
 
 ## Phase 1 – Host mode + USB Ethernet on the OTG hub
 
-Look at `== usb-net drivers` in `device/r36a/inventory.txt`: is `r8152`/`cdc_ether` there as a `.ko`,
-in `modules.builtin` or in `lsmod`? Then turn RNDIS off, attach the OTG hub with an RTL8152/8153
-adapter, set host Ethernet to "Shared to other computers" and point `HostName` in `~/.ssh/config` at
-the DHCP address. From then on Ethernet, MIDI and a keyboard hang off the hub at the same time.
+The drivers are there: the card carries `r8152.ko`, `cdc_ether.ko`, `rndis_host.ko`, `asix.ko` and
+`ax88179_178a.ko` under `/lib/modules/4.4.189/kernel/drivers/net/usb/`. So: gadget off (script option
+5), attach the OTG hub with an RTL8152/8153 adapter, set host Ethernet to "Shared to other computers"
+and point `HostName` in `~/.ssh/config` at the DHCP address. From then on Ethernet, MIDI and a
+keyboard hang off the hub at the same time.
 
-Fallback without a driver: deploy over RNDIS, run tests with `nohup ... > log.txt 2>&1 &`, unload the
-gadget (script option 5), test MIDI, load the gadget again, read the log.
+Fallback: deploy over the gadget, run tests with `nohup ... > log.txt 2>&1 &`, unload the gadget
+(option 5), test MIDI, load it again, read the log.
 
 ## Phase 2 – Diagnostics
 
@@ -77,8 +260,8 @@ come from the fragments' `<path>`, so a new system cannot be forgotten.
 
 ## Phase 4 – Track A (ArkOS/ES)
 
-**4.1 synth (FluidSynth, end-to-end test)** – install `fluidsynth` + `libfluidsynth` as arm64 `.deb`,
-put a `.sf2` in `/roms/synth/`, deploy. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
+**4.1 synth (FluidSynth, end-to-end test)** – `fluidsynth` is already on the card (`/bin/fluidsynth`),
+so this is only a `.sf2` in `/roms/synth/` plus a deploy. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
 script (`-z`/`-c`) down until it crackles – that is the device's floor.
 
 **4.2 chiptune (GME core, config only)** – put `gme_libretro.so` (arm64: libretro buildbot or build

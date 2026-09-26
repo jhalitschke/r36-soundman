@@ -1,0 +1,21 @@
+[Unit]
+Description=R36S USB Ethernet gadget with ssh and DHCP
+After=network.target
+
+[Service]
+Type=simple
+RemainAfterExit=yes
+# process, not the default control-group: the script starts dnsmasq and then
+# exits, and killing the whole group on exit takes the DHCP server with it -
+# which looks exactly like a dead link from the PC side.
+KillMode=process
+# One mode, deterministically. Walking the modes cannot work here: the host does not
+# re-enumerate on a module reload, so it would never see the alternatives.
+# "ecm" makes config 1 a CDC ECM rather than an EEM. A Linux host still picks the
+# RNDIS config - usb_choose_configuration() prefers it whenever rndis_host exists -
+# but this way the alternative it ignores is at least a standard one.
+ExecStart=/usr/local/bin/r36-usbnet start ecm
+ExecStop=/usr/local/bin/r36-usbnet stop
+
+[Install]
+WantedBy=multi-user.target
