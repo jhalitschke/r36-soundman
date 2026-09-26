@@ -1,13 +1,15 @@
-# gptokeyb-Mapping nach PocketCHIP-Belegung von Picoloop
+# gptokeyb mapping for picoloop. The keys come from Master.h in the picoloop
+# source (block LINUX_RASPI1, identical to PC_DESKTOP and OPENDINGUX) - picoloop
+# reads exactly these SDL keys and nothing else.
 up = up
 down = down
 left = left
 right = right
-a = rightshift
-b = rightctrl
-x = tab
-y = backspace
+a = leftctrl
+b = leftalt
+x = space
+y = leftshift
 start = enter
 select = esc
-l1 = pageup
-r1 = pagedown
+l1 = tab
+r1 = backspace

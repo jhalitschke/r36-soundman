@@ -4,6 +4,7 @@ callbacks via ctypes, MIDI through a FIFO (ADL_MIDI_DEV), audio into a WAV.
 
     scripts/adl_harness.py --demo out.wav      # render the demo sequence
     scripts/adl_harness.py --tone 69 out.wav   # render a single note (A4)
+    scripts/adl_harness.py --demo --shots shot # the core's own 320x240 screen as PNGs
 
 That makes the bank, the MIDI parser, note output and note-off verifiable on the
 host (x86 build). The result does not go to the device - it is a functional test.
@@ -12,9 +13,11 @@ import argparse
 import ctypes
 import math
 import os
+import struct
 import sys
 import tempfile
 import wave
+import zlib
 from array import array
 from pathlib import Path
 
@@ -42,14 +45,18 @@ CB_STATE = ctypes.CFUNCTYPE(ctypes.c_int16, ctypes.c_uint, ctypes.c_uint, ctypes
 class Core:
     """A loaded libretro core with a FIFO as its MIDI input."""
 
-    def __init__(self, so=SO, bank=None):
+    def __init__(self, so=SO, bank=None, midi=True):
         self.audio = array("h")          # interleaved stereo
         self.buttons = set()
         self.video_calls = 0
+        self.shot_at = set()             # video-callback numbers to capture
+        self.shots = []                  # captured (width, height, RGB565 bytes)
         self._tmp = tempfile.mkdtemp(prefix="adl-harness-")
         self.fifo = os.path.join(self._tmp, "midi")
         os.mkfifo(self.fifo)
-        os.environ["ADL_MIDI_DEV"] = self.fifo   # has to be set before retro_load_game
+        # Has to be set before retro_load_game. midi=False points the core at a path
+        # that does not exist, which is how the "no rawmidi device" state is reached.
+        os.environ["ADL_MIDI_DEV"] = self.fifo if midi else self.fifo + "-absent"
 
         self.lib = ctypes.CDLL(str(so))
         self.lib.retro_load_game.restype = ctypes.c_bool
@@ -69,7 +76,9 @@ class Core:
         arg = ctypes.c_char_p(str(bank).encode()) if bank else None
         if not self.lib.retro_load_game(arg):
             raise SystemExit("retro_load_game failed")
-        self.midi = os.open(self.fifo, os.O_WRONLY | os.O_NONBLOCK)
+        # O_RDWR, not O_WRONLY: with midi=False nobody opened the read end, and
+        # opening a FIFO write-only without a reader fails with ENXIO.
+        self.midi = os.open(self.fifo, os.O_RDWR | os.O_NONBLOCK)
 
     # --- libretro callbacks ---
     def _env(self, cmd, data):
@@ -83,6 +92,9 @@ class Core:
 
     def _video(self, data, w, h, pitch):
         self.video_calls += 1
+        if self.video_calls in self.shot_at and data:
+            rows = [ctypes.string_at(data + y * pitch, w * 2) for y in range(h)]
+            self.shots.append((w, h, b"".join(rows)))
 
     def _audio_batch(self, data, frames):
         if data and frames:
@@ -113,6 +125,13 @@ class Core:
         for _ in range(n):
             self.lib.retro_run()
 
+    def screenshot(self):
+        """Run one frame and return its framebuffer as (width, height, RGB565 bytes)."""
+        self.shot_at = {self.video_calls + 1}
+        self.run()
+        self.shot_at = set()
+        return self.shots[-1]
+
     def press(self, id_):
         """Hold for one frame, release for one, so the core sees the edge."""
         self.buttons.add(id_)
@@ -134,6 +153,41 @@ class Core:
             w.setframerate(SR)
             w.writeframes(self.audio.tobytes())
         return path
+
+
+def pixel(shot, x, y):
+    """One RGB565 value out of a captured framebuffer."""
+    width, _, fb = shot
+    i = 2 * (y * width + x)
+    return fb[i] | (fb[i + 1] << 8)
+
+
+# Colours the core draws with (see draw() in adl_libretro.c).
+GREEN, RED, WHITE, DRUM_BAR, CHAN_BAR = 0x07E0, 0xF800, 0xFFFF, 0xFD20, 0x3D9F
+
+
+def png(path, width, height, rgb565, scale=3):
+    """Write an RGB565 framebuffer as a PNG, nearest-neighbour scaled (no deps)."""
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            v = rgb565[2 * (y * width + x)] | (rgb565[2 * (y * width + x) + 1] << 8)
+            rgb = bytes((((v >> 11) & 0x1F) * 255 // 31,
+                         ((v >> 5) & 0x3F) * 255 // 63,
+                         (v & 0x1F) * 255 // 31))
+            row += rgb * scale
+        rows.extend([bytes(row)] * scale)
+    raw = b"".join(b"\x00" + r for r in rows)
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    head = struct.pack(">IIBBBBB", width * scale, height * scale, 8, 2, 0, 0, 0)
+    Path(path).write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
+                           + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    return path
 
 
 # --- analysis ------------------------------------------------------------
@@ -253,10 +307,10 @@ def demo_events(bars=6):
     return sorted(ev)
 
 
-def render(events, total_frames, core):
-    """Feed the events frame-accurately between the retro_run calls."""
+def render(events, runs, core):
+    """Feed the events frame-accurately between exactly `runs` retro_run calls."""
     events = list(events)
-    while core.frames < total_frames:
+    for _ in range(runs):
         now = core.frames
         while events and events[0][0] <= now + FRAMES:
             _, name, args = events.pop(0)
@@ -273,32 +327,40 @@ def main(argv=None):
     p.add_argument("--demo", action="store_true", help="demo sequence (6 bars, 120 bpm)")
     p.add_argument("--tone", type=int, metavar="NOTE", help="one MIDI note for 2 s")
     p.add_argument("--program", type=int, default=81, help="program for --tone (default 81)")
+    p.add_argument("--shots", metavar="PREFIX", help="write 4 PNGs of the core's screen (<PREFIX>-1.png ...)")
+    p.add_argument("--scale", type=int, default=3, help="PNG scale factor (default 3 -> 960x720)")
     a = p.parse_args(argv)
 
     core = Core(a.so, a.bank)
+    bars, pre, post = 6, 2, 60
+    main_runs = bars * 4 * FRAMES_PER_BEAT // FRAMES
+    runs = pre + (30 + 120 if a.tone is not None else main_runs) + post
+    if a.shots:
+        core.shot_at = {runs * i // 4 for i in range(1, 5)}
     try:
         if a.tone is not None:
             core.program(LEAD, a.program)
-            core.run(2)
+            core.run(pre)
             core.note_on(LEAD, a.tone, 110)
             core.run(120)                     # 2 s
             core.note_off(LEAD, a.tone)
-            core.run(30)                      # 0.5 s of release
+            core.run(post)                    # 1 s of release
             print("note %d = %.2f Hz expected, %.2f Hz measured"
                   % (a.tone, note_hz(a.tone), fundamental(mono(core.audio, SR // 4, SR // 4 + 4096))))
         else:
             for ch, prog in PROGRAMS.items():
                 core.program(ch, prog)
-            core.run(2)
-            bars = 6
-            render(demo_events(bars), bars * 4 * FRAMES_PER_BEAT, core)
-            core.run(60)                      # 1 s of release
+            core.run(pre)
+            render(demo_events(bars), main_runs, core)
+            core.run(post)                    # 1 s of release
         print("%.2f s, %d retro_run calls, peak %d (%.1f dBFS), RMS %.0f, clipping %.3f %%"
               % (core.frames / SR, core.video_calls, peak(core.audio),
                  20 * math.log10(max(peak(core.audio), 1) / 32768.0), rms(mono(core.audio)),
                  100 * clip_ratio(core.audio)))
         if a.wav:
             print("-> " + str(core.wav(a.wav)))
+        for i, (w, h, fb) in enumerate(core.shots, 1):
+            print("-> " + str(png("%s-%d.png" % (a.shots, i), w, h, fb, a.scale)))
     finally:
         core.close()
     return 0
