@@ -115,8 +115,11 @@ display is only used to verify.
 - picoloop is built for arm64 with the makefile and key mapping settled
   (`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, RtAudio on ALSA, `keys.gptk` from `Master.h`).
 - Logos for every system are in `es/theme/logos/`.
-- Open: the `LGPT_BIN` path (`ports/lgpt/lgpt.sh`); which theme is installed and where it wants its
-  art; and phase 2, which needs hardware.
+- **ES lists adlib, opn and lgpt** on r36a; chiptune and synth stay hidden until someone puts a
+  chiptune and a soundfont in their directories, which is content rather than work.
+- Open, and all of it needs hardware someone has to plug in: phase 2 (a MIDI-only, self-powered
+  device straight on the port), phase 1 (a plain powered USB 2.0 hub, not a dock), a `.sf2` for
+  synth, and whether picoloop and LGPT sound right once a button leaves their first screen.
 - **`cores/gme` is built and runs too**, so ES lists adlib, opn and chiptune. It is libretro's Game
   Music Emu at a pinned revision, GPL-3.0 against our MIT, built rather than vendored - the `.so` is
   gitignored so nothing redistributes a binary. It runs at 44100 Hz rather than our 48000, being
@@ -172,6 +175,10 @@ display is only used to verify.
 - Next engine: `mt32` (mt32emu, ROMs in RetroArch's `system/`).
 
 ## Order (do not skip)
+
+Phases 0 and 3 are done, 4.2-4.4 and 5 run on the device. What is left needs hardware: a MIDI-only
+self-powered device on the port (phase 2), and a plain powered USB 2.0 hub for phase 1. Everything
+else below is history now, kept because the order is still the order for r36b.
 
 1. Phase 0: `USB Network Mode.sh` option 1, then 2 -> `ssh ark@10.44.44.1` -> `inventory.sh r36a`
 2. Phase 1: USB Ethernet on a **plain powered USB 2.0 hub** in the host role (`tools/Boot Role.sh`) -
