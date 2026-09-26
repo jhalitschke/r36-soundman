@@ -9,7 +9,11 @@ get_controls
 PERIOD=${PERIOD:-256}; COUNT=${COUNT:-2}   # the latency knobs
 cd /roms/synth || exit 1
 $GPTOKEYB "fluidsynth" &
-fluidsynth -i -a alsa -o audio.alsa.device=hw:0 -m alsa_seq -o midi.autoconnect=1 \
+# nice -19 like every one of ArkOS's own 123 commands: on this device a normal
+# user may lower its niceness but may not have realtime priority at all
+# (RLIMIT_RTPRIO is 0), which is why fluidsynth warns "Failed to set thread to
+# high priority" and why -19 is the most that can be done for it here.
+nice -n -19 fluidsynth -i -a alsa -o audio.alsa.device=hw:0 -m alsa_seq -o midi.autoconnect=1 \
   -r 48000 -z "$PERIOD" -c "$COUNT" "$1" > /roms/ports/synth/log.txt 2>&1
 # shellcheck disable=SC2046  # pidof may return several PIDs, the splitting is intended
 $ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null

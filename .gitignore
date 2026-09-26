@@ -2,6 +2,7 @@ device/*/
 !device/.gitkeep
 cores/*/libADLMIDI/
 cores/*/libOPNMIDI/
+cores/*/libretro-gme/
 cores/*/*.so
 ports/picoloop/src/
 ports/picoloop/picoloop

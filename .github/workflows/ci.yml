@@ -17,12 +17,12 @@ jobs:
 
       - name: bash -n (host and device scripts)
         run: |
-          for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
+          for f in scripts/*.sh ports/*/*.sh tools/*.sh; do bash -n "$f"; done
 
       - name: shellcheck
         # severity=warning: the info-level notes of the PortMaster scripts (SC1091
         # on control.txt, SC2012) are part of the pattern, not a defect.
-        run: shellcheck --severity=warning scripts/*.sh ports/*/*.sh
+        run: shellcheck --severity=warning scripts/*.sh ports/*/*.sh tools/*.sh
 
       - name: python syntax
         run: python3 -m compileall -q scripts tests
@@ -74,14 +74,18 @@ jobs:
 
       - uses: docker/setup-qemu-action@v3
 
-      - name: scripts/build.sh adl + opn
+      - name: scripts/build.sh adl + opn + gme
         env:
           UBUNTU: "20.04" # has to match the ArkOS base (device/<host>/inventory.txt)
         run: |
           scripts/build.sh adl
           scripts/build.sh opn
+          scripts/build.sh gme
 
-      - name: both .so are aarch64
+      - name: every .so is aarch64
         run: |
           file cores/*/*_libretro.so
-          file cores/*/*_libretro.so | grep -c 'ARM aarch64' | grep -q '^2$'
+          test "$(file cores/*/*_libretro.so | grep -c 'ARM aarch64')" = 3
+
+      - name: nothing needs a newer glibc than the device has
+        run: scripts/glibc-check.py --max 2.30 cores/*/*_libretro.so

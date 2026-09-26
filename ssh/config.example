@@ -1,10 +1,15 @@
 # copy into ~/.ssh/config (or: Include ~/Projects/r36-soundman/ssh/config)
-# Phase 0 address: in USB Network Mode's universal mode the handheld itself is
-# 10.44.44.1. Only one device is plugged in at a time, so both hosts share it.
-Host r36a
+#
+# In universal mode the handheld itself is 10.44.44.1. Only one device is
+# plugged in at a time, so both hosts share the address; after phase 1 (USB
+# ethernet on the OTG hub) point HostName at the DHCP address instead.
+Host r36a r36b
     HostName 10.44.44.1
     User ark
-Host r36b
-    HostName 10.44.44.1
-    User ark
-# after phase 1 (USB Ethernet on the OTG hub) change HostName to the DHCP address or r36a.local
+    # A dedicated key, used straight from the file: with several keys in ~/.ssh
+    # the client runs into sshd's MaxAuthTries before it reaches the password,
+    # and an agent that refuses to sign would take the file's place.
+    #   ssh-keygen -t ed25519 -N "" -C r36-soundman -f ~/.ssh/r36_ed25519
+    IdentitiesOnly yes
+    IdentityAgent none
+    IdentityFile ~/.ssh/r36_ed25519

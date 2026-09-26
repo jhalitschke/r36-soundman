@@ -5,5 +5,5 @@
   <extension>.lgpt .LGPT</extension>
   <command>/roms/ports/lgpt/lgpt.sh %ROM%</command>
   <platform>pc</platform>
-  <theme>ports</theme>
+  <theme>lgpt</theme>
 </system>

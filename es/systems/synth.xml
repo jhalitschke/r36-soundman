@@ -5,5 +5,5 @@
   <extension>.sf2 .SF2</extension>
   <command>/roms/ports/synth/fluidsynth.sh %ROM%</command>
   <platform>pc</platform>
-  <theme>ports</theme>
+  <theme>synth</theme>
 </system>

@@ -12,12 +12,26 @@ rsync -av --exclude src --exclude build --exclude build.sh ports/ "$HOST:/roms/p
 ssh "$HOST" 'chmod +x /roms/ports/*/*.sh'
 
 echo "== cores"
-CORES=$(ssh "$HOST" 'grep ^libretro_directory ~/.config/retroarch/retroarch.cfg | cut -d\" -f2')
-INFO=$(ssh "$HOST" 'grep ^libretro_info_path ~/.config/retroarch/retroarch.cfg | cut -d\" -f2')
+# retroarch.cfg writes these with a tilde, and the path ends up inside the ES
+# command line - where the device's own entries are absolute throughout. Let the
+# remote shell expand it rather than hope ES runs the command through one.
+cfgdir() {
+  ssh "$HOST" "d=\$(grep ^$1 ~/.config/retroarch/retroarch.cfg | cut -d'\"' -f2); eval echo \"\$d\""
+}
+CORES=$(cfgdir libretro_directory)
+INFO=$(cfgdir libretro_info_path)
+echo "-> cores: $CORES"
 for so in cores/*/*_libretro.so; do
   [ -e "$so" ] || continue
   scp "$so" "$HOST:$CORES/"; scp "${so%.so}.info" "$HOST:$INFO/" || true
 done
+
+# Appended to our systems' RetroArch command only: it takes the sound card
+# exclusively to get under the 42.7 ms that ArkOS's dmix imposes, and ArkOS's
+# own emulators have no business being dragged along. See README, phase 5.
+RACFG=$(dirname "$CORES")/r36-lowlatency.cfg
+scp es/retroarch-lowlatency.cfg "$HOST:$RACFG"
+echo "-> $RACFG"
 
 echo "== es_systems"
 # ES reads ~/.emulationstation/es_systems.cfg before /etc, so patch the one it
@@ -28,8 +42,8 @@ echo "-> $ES"
 scp "$HOST:$ES" "$OUT/es_systems.cfg"
 # --cores: the directory the .so really went into, instead of letting es-merge
 # derive a second one from the device file (which may be the 32-bit RetroArch).
-python3 scripts/es-merge.py "$OUT/es_systems.cfg" es/systems/*.xml --cores "$CORES" \
-  > "$OUT/es_systems.merged.cfg"
+python3 scripts/es-merge.py "$OUT/es_systems.cfg" es/systems/*.xml \
+  --cores "$CORES" --append "$RACFG" > "$OUT/es_systems.merged.cfg"
 scp "$OUT/es_systems.merged.cfg" "$HOST:/tmp/es_systems.cfg"
 
 # The rom directories come from the fragments, so a new system cannot be
@@ -45,6 +59,36 @@ ssh "$HOST" "
   for d in $DIRS; do sudo mkdir -p \"\$d\"; sudo chown \"\$(id -un):\$(id -gn)\" \"\$d\"; done
   # An empty .wopl is the marker that lets ES launch the adl core on its
   # embedded bank; a real bank dropped next to it takes precedence.
-  [ -e /roms/adlib/embedded.wopl ] || : > /roms/adlib/embedded.wopl
-  sudo systemctl restart emulationstation"
+  [ -e /roms/adlib/embedded.wopl ] || : > /roms/adlib/embedded.wopl"
+
+# opn has no embedded bank and refuses to start without one, so ship a bank that
+# may be shipped: Doom32x-fixx is MIT and its readme says so, which is more than
+# most WOPN banks can claim. A bank already there - the user's own - is left
+# alone, so this only ever fills an empty system.
+if ssh "$HOST" '[ -e /roms/opn/Doom32x-fixx.wopn ]'; then
+  echo "-> /roms/opn/Doom32x-fixx.wopn is already there"
+else
+  scp cores/opn/Doom32x-fixx.wopn cores/opn/Doom32x-fixx-readme.txt "$HOST:/roms/opn/"
+fi
+
+# Logos, into whichever theme is switched on right now. The theme takes them as
+# _art/logos/${system.theme}.png, and the fragments set <theme> to their own
+# name so each system gets its own instead of the generic Ports one. A logo the
+# theme already ships is left alone, and switching themes means deploying again.
+THEME=$(ssh "$HOST" 'sed -n "s/.*name=\"ThemeSet\" value=\"\([^\"]*\)\".*/\1/p" ~/.emulationstation/es_settings.cfg')
+if [ -n "$THEME" ] && ssh "$HOST" "[ -d /roms/themes/$THEME/_art/logos ]"; then
+  echo "== logos -> $THEME"
+  for png in es/theme/logos/*.png; do
+    n=$(basename "$png")
+    if ssh "$HOST" "[ -e /roms/themes/$THEME/_art/logos/$n ]"; then
+      echo "   $n: the theme has its own, left alone"
+    else
+      scp -q "$png" "$HOST:/roms/themes/$THEME/_art/logos/$n" && echo "   $n"
+    fi
+  done
+else
+  echo "== logos: no theme with an _art/logos directory (ThemeSet=${THEME:-unset}) - skipped"
+fi
+
+ssh "$HOST" "sudo systemctl restart emulationstation"
 echo "done. the original is on the device as ${ES}.orig"

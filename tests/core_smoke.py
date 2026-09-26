@@ -56,6 +56,13 @@ def info_file(so):
 def main(argv):
     so = Path(argv[1] if len(argv) > 1 else "cores/adl/adl_libretro.so").resolve()
     problems = []
+    # dlopen reports a foreign architecture as "No such file or directory",
+    # which sends you looking for a missing file that is right there.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import elfinfo
+    if not elfinfo.is_host_arch(so):
+        print(f"{so.name} is not this machine's architecture - built for the device?")
+        return 1
     lib = ctypes.CDLL(str(so))
 
     for sym in MANDATORY:

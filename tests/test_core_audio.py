@@ -8,9 +8,13 @@ tests skip themselves, so the lint job stays build-free.
 """
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import elfinfo  # noqa: E402  (after sys.path, so it works from any cwd)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -19,8 +23,15 @@ BANKS = {"opn": ROOT / "cores" / "opn" / "libOPNMIDI" / "fm_banks" / "xg.wopn"}
 
 
 def cores():
-    """(name, .so, bank) for every built core whose prerequisites are there."""
+    """(name, .so, bank) for every built core whose prerequisites are there.
+
+    A core cross-built for the device sits in the same place as a host-side
+    build, so anything that is not this machine's architecture is skipped -
+    dlopen would otherwise fail with a message about a missing file.
+    """
     for so in sorted(ROOT.glob("cores/*/*_libretro.so")):
+        if not elfinfo.is_host_arch(so):
+            continue
         name = so.stem.replace("_libretro", "")
         bank = BANKS.get(name)
         if bank is not None and not bank.exists():
@@ -29,6 +40,8 @@ def cores():
 
 
 BUILT = list(cores())
+HAVE_ADL = any(n == "adl" for n, _, _ in BUILT)
+HAVE_OPN = any(n == "opn" for n, _, _ in BUILT)
 
 
 def _harness():
@@ -280,13 +293,13 @@ class TestBankHandling(unittest.TestCase):
         core.run(45)
         return H.rms(H.mono(core.audio, start + H.SR // 50))
 
-    @unittest.skipUnless(ADL.exists() and WOPL.exists(), "adl or its banks are not built")
+    @unittest.skipUnless(HAVE_ADL and WOPL.exists(), "adl or its banks are not built")
     def test_adl_loads_a_wopl_bank(self):
         core = H.Core(self.ADL, bank=self.WOPL)
         self.addCleanup(core.close)
         self.assertGreater(self.play(core), 200.0)
 
-    @unittest.skipUnless(ADL.exists(), "adl is not built")
+    @unittest.skipUnless(HAVE_ADL, "adl is not built")
     def test_adl_empty_marker_falls_back_to_the_embedded_bank(self):
         with tempfile.TemporaryDirectory() as d:
             marker = Path(d) / "embedded.wopl"
@@ -295,13 +308,13 @@ class TestBankHandling(unittest.TestCase):
             self.addCleanup(core.close)
             self.assertGreater(self.play(core), 200.0)
 
-    @unittest.skipUnless(OPN.exists() and WOPN.exists(), "opn or its banks are not built")
+    @unittest.skipUnless(HAVE_OPN and WOPN.exists(), "opn or its banks are not built")
     def test_opn_loads_a_wopn_bank(self):
         core = H.Core(self.OPN, bank=self.WOPN)
         self.addCleanup(core.close)
         self.assertGreater(self.play(core), 200.0)
 
-    @unittest.skipUnless(OPN.exists(), "opn is not built")
+    @unittest.skipUnless(HAVE_OPN, "opn is not built")
     def test_opn_without_a_bank_refuses_to_load(self):
         """libOPNMIDI has no embedded bank, so there is nothing to fall back to."""
         with self.assertRaises(SystemExit):

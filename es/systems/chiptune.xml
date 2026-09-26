@@ -3,7 +3,7 @@
   <fullname>Chiptune (Game Music Emu)</fullname>
   <path>/roms/chiptune</path>
   <extension>.nsf .nsfe .spc .vgm .vgz .gbs .gym .sap .hes .kss .ay .NSF .NSFE .SPC .VGM .VGZ .GBS .GYM .SAP .HES .KSS .AY</extension>
-  <command>{{RA}} -L {{CORES}}/gme_libretro.so {{TAIL}}</command>
+  <command>{{RA}} -L {{CORES}}/gme_libretro.so {{APPEND}} {{TAIL}}</command>
   <platform>pc</platform>
-  <theme>ports</theme>
+  <theme>chiptune</theme>
 </system>

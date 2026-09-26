@@ -41,6 +41,14 @@ BASE = """<?xml version="1.0"?>
 </systemList>
 """
 
+# What ArkOS actually ships: a command with a bare ampersand, which ES reads
+# without complaint and which is not well-formed XML. Anything that parses the
+# device file strictly falls over on the whole thing.
+BASE_WITH_BARE_AMPERSAND = BASE.replace(
+    "<command>bash %ROM%</command>",
+    "<command>sudo chmod 666 /dev/tty1; %ROM% 2>&1 > /dev/tty1</command>",
+)
+
 BASE_WITHOUT_RETROARCH = BASE.replace(
     "/usr/local/bin/retroarch -L /usr/local/lib/libretro/snes9x_libretro.so %ROM%",
     "bash /opt/start_snes.sh %ROM%",
@@ -90,6 +98,18 @@ class TestMerge(unittest.TestCase):
         out = merge(BASE_WITHOUT_RETROARCH)
         self.assertIn("retroarch -L /roms/cores/adl_libretro.so", out)
 
+    def test_a_bare_ampersand_in_the_device_file_is_survived(self):
+        """ArkOS ships "2>&1" in a command; ES shrugs, a strict parser does not."""
+        out = merge(BASE_WITH_BARE_AMPERSAND)
+        self.assertIn("adlib", names(out))
+        # and what comes back out is valid XML, with the ampersand as an entity
+        root = ET.fromstring(out)
+        cmds = [c.text for c in root.iter("command")]
+        self.assertTrue(
+            any("2>&1" in c for c in cmds),
+            "the device's own command was lost or mangled",
+        )
+
     def test_output_is_valid_xml(self):
         root = ET.fromstring(merge(BASE))
         self.assertEqual(root.tag, "systemList")
@@ -124,6 +144,23 @@ class TestRetroArchProbe(unittest.TestCase):
         self.assertIn("/usr/local/bin/retroarch -L /usr/local/lib/libretro/adl_libretro.so", out)
         self.assertNotIn("retroarch32 -L", out.split("<name>adlib</name>")[1][:400])
 
+    def test_append_adds_one_appendconfig(self):
+        out = merge(BASE, extra=("--append", "/home/ark/.config/retroarch/low.cfg"))
+        cmds = [c.text for c in ET.fromstring(out).iter("command")]
+        ours = [c for c in cmds if "adl_libretro.so" in c]
+        self.assertEqual(len(ours), 1)
+        self.assertIn("--appendconfig /home/ark/.config/retroarch/low.cfg", ours[0])
+        # and the device's own systems are left alone
+        theirs = [c for c in cmds if "snes9x" in c]
+        self.assertTrue(theirs and "--appendconfig" not in theirs[0])
+
+    def test_without_append_the_placeholder_leaves_no_gap(self):
+        out = merge(BASE)
+        ours = [c.text for c in ET.fromstring(out).iter("command") if "adl_libretro.so" in c.text]
+        self.assertNotIn("{{", ours[0])
+        self.assertNotIn("--appendconfig", ours[0])
+        self.assertNotIn("  ", ours[0], "a double space where the argument was")
+
     def test_cores_override_beats_the_device_file(self):
         out = merge(self.BOTH, extra=["--cores", "/home/ark/.config/retroarch/cores"])
         self.assertIn("-L /home/ark/.config/retroarch/cores/adl_libretro.so", out)
@@ -141,8 +178,13 @@ class TestFragments(unittest.TestCase):
                 self.assertEqual(sysel.tag, "system")
                 for tag in ("name", "fullname", "path", "extension", "command", "platform", "theme"):
                     self.assertTrue((sysel.findtext(tag) or "").strip(), "<%s> missing" % tag)
-                # As long as there are no logos of our own: theme="ports" (CLAUDE.md).
-                self.assertEqual(sysel.findtext("theme"), "ports")
+                # The theme name is what the installed theme looks its logo up by
+                # (_art/logos/${system.theme}.png), so it has to be our own name
+                # and a logo of that name has to exist to be deployed.
+                theme = sysel.findtext("theme")
+                self.assertEqual(theme, sysel.findtext("name"))
+                self.assertTrue((ROOT / "es" / "theme" / "logos" / (theme + ".png")).exists(),
+                                "no logo for theme %r" % theme)
                 # Either the fragment names the ROM itself, or it inherits the
                 # device command's tail, which carries %ROM%.
                 command = sysel.findtext("command")
@@ -151,7 +193,7 @@ class TestFragments(unittest.TestCase):
                 self.assertEqual(sysel.findtext("path"), "/roms/" + sysel.findtext("name"))
 
     def test_only_known_placeholders(self):
-        allowed = {"{{RA}}", "{{CORES}}", "{{TAIL}}"}
+        allowed = {"{{RA}}", "{{CORES}}", "{{TAIL}}", "{{APPEND}}"}
         for fragment in FRAGMENTS:
             with self.subTest(fragment=fragment.name):
                 found = set(re.findall(r"\{\{[^}]*\}\}", fragment.read_text()))
