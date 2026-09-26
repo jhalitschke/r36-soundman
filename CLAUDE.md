@@ -115,12 +115,20 @@ display is only used to verify.
   cores built today would want glibc 2.31 against the device's 2.30; the `LGPT_BIN` path
   (`ports/lgpt/lgpt.sh`); an arm64 `gme_libretro.so` (`cores/gme/`); which theme is installed and
   where it wants its art.
+- Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built
+  into the kernel, the host role works, but nothing has enumerated yet. A Dell WD19 fails on PD it
+  cannot negotiate; a DDJ-FLX4 froze the device even on external power (suspect dwc2's host path with
+  isochronous transfers - it is an audio device). The missing test is a MIDI-only, self-powered
+  device straight on the port. Note that the internal wifi hangs off the same dwc2 port and is
+  dropped whenever anything is plugged in.
 - Next engine: `mt32` (mt32emu, ROMs in RetroArch's `system/`).
 
 ## Order (do not skip)
 
 1. Phase 0: `USB Network Mode.sh` option 1, then 2 -> `ssh ark@10.44.44.1` -> `inventory.sh r36a`
-2. Phase 1: USB Ethernet on the OTG hub - `r8152`/`cdc_ether`/`ax88179_178a` are on the card
+2. Phase 1: USB Ethernet on a **plain powered USB 2.0 hub** in the host role (`tools/Boot Role.sh`) -
+   `r8152`/`cdc_ether`/`ax88179_178a` are on the card. Not a dock: a WD19 fails on PD this port
+   cannot negotiate. Host role costs the USB-C network cable, so the hub has to carry the network.
 3. Phase 2: `diag.sh r36a 20:0` shows MIDI notes
 4. Phase 4.1: deploy the FluidSynth system -> measure real latency
 5. Phase 4.2/4.3/4.4: GME, picoloop, LGPT

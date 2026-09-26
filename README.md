@@ -246,6 +246,35 @@ If alsa-utils is missing: arm64 `.deb` matching `lsb_release` from ports.ubuntu.
 
 Check: notes arrive in `aseqdump`. Only then continue.
 
+### Phase 2 on this board: one port, and it is contested
+
+Measured on r36a, all of it with `tools/Boot Role.sh` and `tools/MIDI Diag.sh`:
+
+- The host role works. With `gameconsole_linux.dtb` (dr_mode="otg") dwc2 runs as a host and hands out
+  addresses.
+- USB MIDI needs nothing installed: `snd-usb-audio` and `snd-usbmidi-lib` are **built into** the
+  kernel (they are in `modules.builtin`, which is why `/lib/modules/*/kernel/sound` is empty), and so
+  is the ALSA sequencer.
+- **The internal wifi is on the same dwc2 port** and is dropped the moment anything is plugged in
+  (`usb 1-1: USB disconnect` followed by `R8188EU: indicate disassoc`). One controller, one port,
+  and the network, the cable and any peripheral all want it.
+
+What has not worked yet, and why each attempt proves less than it looks:
+
+| tried | result | what it actually says |
+|---|---|---|
+| KeyStep Pro behind a Dell WD19 | `can't read configurations, error -71` | a Thunderbolt dock expects PD negotiation this port cannot do |
+| DDJ-FLX4 directly, externally powered | device froze, only a reset helped | not power. Suspect the dwc2 host path with isochronous transfers - the FLX4 is an audio device, not MIDI-only |
+
+The test still missing is the cheap one: a **MIDI-only, self-powered device straight on the port** -
+a KeyStep Pro on its 12 V supply through a USB-C-to-B cable. If that enumerates, phase 2 is done and
+the FLX4 was a special case. If it does not, the dwc2 host driver of this 4.4 BSP is the problem, and
+MIDI has to reach the device some other way than USB.
+
+The `128 invalid for host_nperio_tx_fifo_size` line in the boot log is **not** a lead: dwc2 clamps
+the value to what the hardware reports and carries on. `/sys/module/dwc2/parameters` is empty, so
+there is nothing to tune there either.
+
 ## Phase 3 – Deploy loop
 
     scripts/deploy.sh r36a        # ports/ -> /roms/ports, cores -> libretro_directory, merge ES systems, restart ES
