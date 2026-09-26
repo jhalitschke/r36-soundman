@@ -47,15 +47,15 @@ BASE_WITHOUT_RETROARCH = BASE.replace(
 )
 
 
-def merge(base_xml, fragments=FRAGMENTS):
+def merge(base_xml, fragments=FRAGMENTS, extra=()):
     """Run es-merge.py against a stand-in device file -> stdout."""
-    with tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False) as f:
-        f.write(base_xml)
-        base = f.name
-    out = subprocess.run(
-        [sys.executable, str(MERGE), base, *map(str, fragments)],
-        capture_output=True, text=True, check=True,
-    )
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d) / "es_systems.cfg"
+        base.write_text(base_xml)
+        out = subprocess.run(
+            [sys.executable, str(MERGE), str(base), *map(str, fragments), *extra],
+            capture_output=True, text=True, check=True,
+        )
     return out.stdout
 
 

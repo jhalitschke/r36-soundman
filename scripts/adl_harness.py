@@ -42,6 +42,12 @@ CB_POLL = ctypes.CFUNCTYPE(None)
 CB_STATE = ctypes.CFUNCTYPE(ctypes.c_int16, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint)
 
 
+class GameInfo(ctypes.Structure):
+    """struct retro_game_info - retro_load_game takes this, not a bare path."""
+    _fields_ = [("path", ctypes.c_char_p), ("data", ctypes.c_void_p),
+                ("size", ctypes.c_size_t), ("meta", ctypes.c_char_p)]
+
+
 class Core:
     """A loaded libretro core with a FIFO as its MIDI input."""
 
@@ -60,7 +66,7 @@ class Core:
 
         self.lib = ctypes.CDLL(str(so))
         self.lib.retro_load_game.restype = ctypes.c_bool
-        self.lib.retro_load_game.argtypes = [ctypes.c_void_p]
+        self.lib.retro_load_game.argtypes = [ctypes.POINTER(GameInfo)]
 
         # Keep the references, otherwise the GC collects the callbacks.
         self._cbs = [CB_ENV(self._env), CB_VIDEO(self._video), CB_AUDIO_BATCH(self._audio_batch),
@@ -73,8 +79,10 @@ class Core:
         self.lib.retro_set_input_state(self._cbs[5])
         self.lib.retro_init()
 
-        arg = ctypes.c_char_p(str(bank).encode()) if bank else None
-        if not self.lib.retro_load_game(arg):
+        # Kept on the instance: the core stores nothing, but ctypes must not
+        # free the struct (or the string it points at) before the call returns.
+        self.game = GameInfo(path=str(bank).encode(), size=0) if bank else None
+        if not self.lib.retro_load_game(ctypes.byref(self.game) if self.game else None):
             raise SystemExit("retro_load_game failed")
         # O_RDWR, not O_WRONLY: with midi=False nobody opened the read end, and
         # opening a FIFO write-only without a reader fails with ENXIO.

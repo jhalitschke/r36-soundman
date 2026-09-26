@@ -94,6 +94,7 @@ class TestCoreAudio(unittest.TestCase):
     def test_gain_scales_and_does_not_clip(self):
         """ADL_GAIN scales linearly; a single note must not saturate."""
         levels = {}
+        self.addCleanup(os.environ.pop, "ADL_GAIN", None)
         for gain in ("1", "6"):
             os.environ["ADL_GAIN"] = gain
             core = H.Core(SO)
@@ -104,7 +105,6 @@ class TestCoreAudio(unittest.TestCase):
             core.run(60)
             levels[gain] = H.peak(core.audio)
             self.assertEqual(H.clip_ratio(core.audio), 0.0, "a single note clips at gain %s" % gain)
-        os.environ.pop("ADL_GAIN", None)
         self.assertAlmostEqual(levels["6"] / levels["1"], 6.0, delta=0.6,
                                msg="gain is not linear: %r" % levels)
 
@@ -155,6 +155,127 @@ class TestCoreScreen(unittest.TestCase):
             data = Path(path).read_bytes()
         self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertIn(b"IEND", data[-12:])
+
+
+@unittest.skipUnless(SO.exists(), "cores/adl/adl_libretro.so missing - run 'make -C cores/adl' first")
+class TestCoreMidi(unittest.TestCase):
+    """The wire format, not just the three messages the harness has helpers for.
+
+    A USB MIDI keyboard mostly sends running status, note-off as velocity 0 and
+    realtime bytes in between, so those paths carry the instrument.
+    """
+
+    def core(self):
+        core = H.Core(SO)
+        self.addCleanup(core.close)
+        core.program(H.LEAD, 81)
+        core.run(6)
+        return core
+
+    def sounding(self, core, start, runs=45):
+        core.run(runs)
+        return H.rms(H.mono(core.audio, start + H.SR // 50))
+
+    def test_running_status_plays_the_second_note(self):
+        core = self.core()
+        start = core.frames
+        core.send(0x90, 60, 100)          # status byte once
+        core.send(64, 100)                # running status: data bytes only
+        core.send(0x80, 60, 0)            # silence the first one again
+        self.assertGreater(self.sounding(core, start), 200.0, "running status note is missing")
+
+    def test_data_bytes_without_a_status_byte_are_ignored(self):
+        core = self.core()
+        start = core.frames
+        core.send(64, 100)                # no status has ever been sent
+        self.assertLess(self.sounding(core, start), 1.0, "parser invents a note")
+
+    def test_note_on_with_velocity_zero_is_a_note_off(self):
+        core = self.core()
+        start = core.frames
+        core.send(0x90, 69, 110)
+        loud = self.sounding(core, start)
+        off = core.frames
+        core.send(0x90, 69, 0)            # the usual note-off from a keyboard
+        core.run(45)
+        self.assertLess(H.rms(H.mono(core.audio, off + H.SR // 2)), loud * 0.05)
+
+    def test_controller_all_notes_off(self):
+        core = self.core()
+        start = core.frames
+        core.send(0x90, 69, 110)
+        loud = self.sounding(core, start)
+        off = core.frames
+        core.send(0xB0, 123, 0)           # CC 123 = all notes off
+        core.run(45)
+        self.assertLess(H.rms(H.mono(core.audio, off + H.SR // 2)), loud * 0.05)
+
+    def test_pitch_bend_raises_the_pitch(self):
+        core = self.core()
+        core.send(0x90, 69, 110)
+        core.run(45)
+        flat = H.fundamental(H.mono(core.audio, core.frames - 8192, core.frames - 4096))
+        core.send(0xE0, 0x00, 0x60)       # lsb, msb - half of the upward range
+        core.run(45)
+        bent = H.fundamental(H.mono(core.audio, core.frames - 8192, core.frames - 4096))
+        self.assertGreater(bent / flat, 1.03, "pitch bend does nothing (%.1f -> %.1f Hz)" % (flat, bent))
+
+    def test_realtime_bytes_do_not_disturb_the_parser(self):
+        """Active sensing arrives constantly, including inside a message."""
+        core = self.core()
+        start = core.frames
+        core.send(0x90, 60)               # message cut in half
+        core.send(0xFE)                   # active sensing right in the middle
+        core.send(100)                    # completes note-on 60
+        core.send(0xFE)
+        core.send(64, 100)                # running status is still 0x90
+        self.assertGreater(self.sounding(core, start), 200.0, "realtime byte swallowed the note")
+
+    def test_sysex_is_skipped_and_ends_running_status(self):
+        core = self.core()
+        start = core.frames
+        core.send(0xF0, 0x7E, 0x7F, 0x09, 0x01, 0xF7)   # GM reset
+        core.send(69, 110)                # must be ignored: sysex cleared the status
+        self.assertLess(self.sounding(core, start), 1.0, "data bytes after sysex were played")
+        start = core.frames
+        core.send(0x90, 69, 110)          # a full message still works
+        self.assertGreater(self.sounding(core, start), 200.0)
+
+
+@unittest.skipUnless(SO.exists(), "cores/adl/adl_libretro.so missing - run 'make -C cores/adl' first")
+class TestCoreBank(unittest.TestCase):
+    """retro_load_game with content - the path CLAUDE.md claims is covered."""
+
+    BANK = ROOT / "cores" / "adl" / "libADLMIDI" / "fm_banks" / "ail" / "MonopolyDeluxe.wopl"
+
+    def play(self, core):
+        core.program(H.LEAD, 81)
+        core.run(6)
+        start = core.frames
+        core.note_on(H.LEAD, 69, 110)
+        core.run(45)
+        return H.rms(H.mono(core.audio, start + H.SR // 50))
+
+    @unittest.skipUnless(BANK.exists(), "no .wopl in the libADLMIDI checkout")
+    def test_wopl_bank_loads_and_sounds(self):
+        core = H.Core(SO, bank=self.BANK)
+        self.addCleanup(core.close)
+        self.assertGreater(self.play(core), 200.0)
+
+    def test_empty_marker_falls_back_to_the_embedded_bank(self):
+        with tempfile.TemporaryDirectory() as d:
+            marker = Path(d) / "embedded.wopl"
+            marker.touch()
+            core = H.Core(SO, bank=marker)
+            self.addCleanup(core.close)
+            self.assertGreater(self.play(core), 200.0)
+
+    def test_a_broken_bank_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as d:
+            broken = Path(d) / "broken.wopl"
+            broken.write_bytes(b"not a bank")
+            with self.assertRaises(SystemExit):
+                H.Core(SO, bank=broken)
 
 
 if __name__ == "__main__":
