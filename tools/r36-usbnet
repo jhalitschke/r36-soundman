@@ -67,6 +67,15 @@ load() {
 
 start() {
   local mode=${1:-ncm}
+  # In host role there is nothing to be a gadget for, and loading one anyway
+  # leaves a usb0 with an address that can only mislead. Boot Role.sh decides
+  # which one this boot is; the devicetree is where it says so.
+  local dr
+  dr=$(tr -d '\0' < /proc/device-tree/usb@ff300000/dr_mode 2>/dev/null)
+  if [ "$dr" != "peripheral" ]; then
+    say "dr_mode=$dr - host role, not loading a gadget"
+    return 0
+  fi
   supports "$mode" || { say "$mode: not available in this kernel"; return 1; }
   load "$mode" || { say "$mode: modprobe refused"; return 1; }
   sleep 2
