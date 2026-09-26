@@ -1,6 +1,7 @@
 /*
  * adl_libretro - OPL3 synth as a libretro core (libADLMIDI).
- * Content: a .wopl bank (optional, embedded bank otherwise).
+ * Content: a .wopl bank (optional). No content, or an empty file as a marker,
+ *          uses the embedded bank 0 - ES can only launch a system through a file.
  * MIDI in:  reads /dev/snd/midiC*D* directly (ALSA rawmidi, non-blocking) -
  *           independent of whether RetroArch was built with MIDI support.
  *           Override: environment variable ADL_MIDI_DEV=/dev/snd/midiC1D0
@@ -17,6 +18,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <glob.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include "../libretro.h"
 #include <adlmidi.h>
 
@@ -39,6 +42,8 @@ static int16_t  abuf[FRAMES * 2];
 static int      midi_fd = -1;
 static char     midi_path[256];
 static uint8_t  chan_act[16];
+static int      midi_fail_logged;          /* only complain about a missing device once */
+static int      midi_retry;                /* frames until the next open() attempt */
 static int      gain_q8 = 6 * 256;         /* output gain in 8.8 fixed point, ADL_GAIN */
 static int      program;
 static uint16_t prev_buttons;
@@ -50,19 +55,26 @@ static int     st_need, st_got;
 static void midi_open(void)
 {
     const char *e = getenv("ADL_MIDI_DEV");
+    if (midi_fd >= 0) { close(midi_fd); midi_fd = -1; }   /* never leak on a re-open */
     if (e) {
         strncpy(midi_path, e, sizeof midi_path - 1);
     } else {
         glob_t g;
+        midi_path[0] = 0;
         if (glob("/dev/snd/midiC*D*", 0, NULL, &g) == 0 && g.gl_pathc > 0)
             strncpy(midi_path, g.gl_pathv[0], sizeof midi_path - 1);
         globfree(&g);
     }
     if (midi_path[0])
         midi_fd = open(midi_path, O_RDONLY | O_NONBLOCK);
-    log_cb(RETRO_LOG_INFO, "[adl] MIDI %s -> %s\n",
-           midi_path[0] ? midi_path : "(no rawmidi device)",
-           midi_fd >= 0 ? "open" : "FAILED");
+    if (midi_fd >= 0) {
+        log_cb(RETRO_LOG_INFO, "[adl] MIDI %s -> open\n", midi_path);
+        midi_fail_logged = 0;
+    } else if (!midi_fail_logged) {
+        log_cb(RETRO_LOG_INFO, "[adl] MIDI %s -> FAILED, retrying once a second\n",
+               midi_path[0] ? midi_path : "(no rawmidi device)");
+        midi_fail_logged = 1;
+    }
 }
 
 static void midi_msg(uint8_t st, uint8_t d1, uint8_t d2)
@@ -85,7 +97,11 @@ static void midi_poll(void)
 {
     uint8_t buf[256];
     ssize_t n;
-    if (midi_fd < 0) return;
+    if (midi_fd < 0) {
+        /* Hot-plug: the keyboard is usually plugged in after the core started. */
+        if (++midi_retry >= FPS) { midi_retry = 0; midi_open(); }
+        return;
+    }
     while ((n = read(midi_fd, buf, sizeof buf)) > 0) {
         for (ssize_t i = 0; i < n; i++) {
             uint8_t b = buf[i];
@@ -170,17 +186,22 @@ bool retro_load_game(const struct retro_game_info *game)
 {
     enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_RGB565;
     if (!env_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt)) return false;
-    unsigned lat = 32;
-    env_cb(RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY, &lat);
 
+    if (adl) { adl_close(adl); adl = NULL; }   /* a second load must not leak */
     adl = adl_init(SR);
     if (!adl) return false;
     adl_switchEmulator(adl, ADLMIDI_EMU_DOSBOX);   /* lighter than Nuked, enough for the RK3326 */
     adl_setNumChips(adl, 1);
     adl_setSoftPanEnabled(adl, 1);
-    if (game && game->path) {
+    struct stat st;
+    if (game && game->path && game->path[0] && stat(game->path, &st) == 0 && st.st_size == 0) {
+        adl_setBank(adl, 0);                   /* marker file -> embedded bank */
+        log_cb(RETRO_LOG_INFO, "[adl] %s is empty, embedded bank 0\n", game->path);
+    } else if (game && game->path && game->path[0]) {
         if (adl_openBankFile(adl, game->path) < 0) {
             log_cb(RETRO_LOG_ERROR, "[adl] bank %s: %s\n", game->path, adl_errorInfo(adl));
+            adl_close(adl);
+            adl = NULL;
             return false;
         }
         log_cb(RETRO_LOG_INFO, "[adl] bank %s\n", game->path);

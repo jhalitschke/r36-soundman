@@ -7,8 +7,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 UBUNTU=${UBUNTU:-20.04}   # match the device's lsb_release (device/<host>/inventory.txt)
 docker build --platform linux/arm64 --build-arg UBUNTU="$UBUNTU" -t r36s-build docker/
-run() { docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src r36s-build bash -c "$1"; }
+# --user: without it everything the build writes into the bind mount is
+# root-owned and the host-side "make -C cores/adl" check then fails.
+run() { docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -e HOME=/tmp \
+          -v "$PWD:/src" -w /src r36s-build bash -c "$1"; }
 case "${1:-all}" in
   adl|all)      run "make -C cores/adl" ;;&
   picoloop|all) run "ports/picoloop/build.sh" ;;
+  *)            echo "unknown target: $1 (adl, picoloop, all)" >&2; exit 2 ;;
 esac

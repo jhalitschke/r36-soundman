@@ -7,7 +7,13 @@
 # OPL2, PBSynth), so Twytch/Open303/Cursynth do not need switching off by hand.
 set -euo pipefail
 cd "$(dirname "$0")"
-[ -d src ] || git clone --depth 1 https://github.com/yoyz/audio src
+PICOLOOP_REV=${PICOLOOP_REV:-33f6ada4125316fbfd8b59bd8941fc876bd092e1}
+if [ ! -d src ]; then
+  git init -q src
+  git -C src remote add origin https://github.com/yoyz/audio
+  git -C src fetch -q --depth 1 origin "$PICOLOOP_REV"
+  git -C src checkout -q FETCH_HEAD
+fi
 cd src/picoloop
 MK=${MK:-Makefile.PatternPlayer_raspi1_RtAudio_sdl20}
 [ -f "$MK" ] || { echo "makefile $MK not found - candidates:"; ls Makefile*sdl20*; exit 1; }
@@ -20,6 +26,10 @@ make -f Makefile.r36s -j"$(nproc)"
 strip PatternPlayer_raspi1_sdl20
 cp -v PatternPlayer_raspi1_sdl20 ../../picoloop
 cp -v font.ttf font.bmp ../../          # the app looks for both next to itself
+# PICODRUM is compiled in and opens patch/MDADrum/... relative to the working
+# directory, which picoloop.sh sets to /roms/ports/picoloop.
+cp -r patch ../../
+[ -d samples ] && cp -r samples ../../ || true
 
 # No libraries are bundled on purpose. The binary needs libSDL2, libSDL2_ttf and
 # libasound, and Ubuntu's libSDL2 drags in pulse, wayland, X11 and systemd - on

@@ -47,15 +47,15 @@ BASE_WITHOUT_RETROARCH = BASE.replace(
 )
 
 
-def merge(base_xml, fragments=FRAGMENTS):
+def merge(base_xml, fragments=FRAGMENTS, extra=()):
     """Run es-merge.py against a stand-in device file -> stdout."""
-    with tempfile.NamedTemporaryFile("w", suffix=".cfg", delete=False) as f:
-        f.write(base_xml)
-        base = f.name
-    out = subprocess.run(
-        [sys.executable, str(MERGE), base, *map(str, fragments)],
-        capture_output=True, text=True, check=True,
-    )
+    with tempfile.TemporaryDirectory() as d:
+        base = Path(d) / "es_systems.cfg"
+        base.write_text(base_xml)
+        out = subprocess.run(
+            [sys.executable, str(MERGE), str(base), *map(str, fragments), *extra],
+            capture_output=True, text=True, check=True,
+        )
     return out.stdout
 
 
@@ -95,6 +95,43 @@ class TestMerge(unittest.TestCase):
         self.assertEqual(root.tag, "systemList")
 
 
+class TestRetroArchProbe(unittest.TestCase):
+    """The device file decides {{RA}}/{{CORES}}/{{TAIL}} - ArkOS has two RetroArchs."""
+
+    RA32 = BASE.replace(
+        "/usr/local/bin/retroarch -L /usr/local/lib/libretro/snes9x_libretro.so %ROM%",
+        "/usr/local/bin/retroarch32 -L /usr/local/lib/libretro32/snes9x_libretro.so "
+        "--config /home/ark/.config/retroarch32/retroarch.cfg %ROM%")
+
+    BOTH = RA32.replace("</systemList>", """  <system>
+    <name>psx</name>
+    <fullname>PlayStation</fullname>
+    <path>/roms/psx</path>
+    <extension>.cue</extension>
+    <command>/usr/local/bin/retroarch -L /usr/local/lib/libretro/pcsx_libretro.so --config /home/ark/.config/retroarch/retroarch.cfg %ROM%</command>
+    <platform>psx</platform>
+    <theme>psx</theme>
+  </system>
+</systemList>""")
+
+    def test_trailing_arguments_are_kept(self):
+        out = merge(self.RA32.replace("retroarch32", "retroarch").replace("libretro32", "libretro"))
+        self.assertIn("--config /home/ark/.config/retroarch/retroarch.cfg %ROM%", out,
+                      "the device command's tail was dropped")
+
+    def test_the_64_bit_retroarch_wins(self):
+        out = merge(self.BOTH)
+        self.assertIn("/usr/local/bin/retroarch -L /usr/local/lib/libretro/adl_libretro.so", out)
+        self.assertNotIn("retroarch32 -L", out.split("<name>adlib</name>")[1][:400])
+
+    def test_cores_override_beats_the_device_file(self):
+        out = merge(self.BOTH, extra=["--cores", "/home/ark/.config/retroarch/cores"])
+        self.assertIn("-L /home/ark/.config/retroarch/cores/adl_libretro.so", out)
+
+    def test_output_starts_with_an_xml_declaration(self):
+        self.assertTrue(merge(BASE).startswith("<?xml"))
+
+
 class TestFragments(unittest.TestCase):
     def test_fragments_are_complete(self):
         self.assertTrue(FRAGMENTS, "no ES fragments found")
@@ -106,11 +143,15 @@ class TestFragments(unittest.TestCase):
                     self.assertTrue((sysel.findtext(tag) or "").strip(), "<%s> missing" % tag)
                 # As long as there are no logos of our own: theme="ports" (CLAUDE.md).
                 self.assertEqual(sysel.findtext("theme"), "ports")
-                self.assertIn("%ROM%", sysel.findtext("command"))
+                # Either the fragment names the ROM itself, or it inherits the
+                # device command's tail, which carries %ROM%.
+                command = sysel.findtext("command")
+                self.assertTrue("%ROM%" in command or "{{TAIL}}" in command,
+                                "command passes no ROM: %s" % command)
                 self.assertEqual(sysel.findtext("path"), "/roms/" + sysel.findtext("name"))
 
     def test_only_known_placeholders(self):
-        allowed = {"{{RA}}", "{{CORES}}"}
+        allowed = {"{{RA}}", "{{CORES}}", "{{TAIL}}"}
         for fragment in FRAGMENTS:
             with self.subTest(fragment=fragment.name):
                 found = set(re.findall(r"\{\{[^}]*\}\}", fragment.read_text()))

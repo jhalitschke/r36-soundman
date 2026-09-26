@@ -3,7 +3,7 @@
   <fullname>AdLib OPL3 (libADLMIDI)</fullname>
   <path>/roms/adlib</path>
   <extension>.wopl .WOPL</extension>
-  <command>{{RA}} -L {{CORES}}/adl_libretro.so %ROM%</command>
+  <command>{{RA}} -L {{CORES}}/adl_libretro.so {{TAIL}}</command>
   <platform>pc</platform>
   <theme>ports</theme>
 </system>
