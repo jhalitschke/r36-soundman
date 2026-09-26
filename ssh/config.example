@@ -1,8 +1,10 @@
 # copy into ~/.ssh/config (or: Include ~/Projects/r36-soundman/ssh/config)
+# Phase 0 address: in USB Network Mode's universal mode the handheld itself is
+# 10.44.44.1. Only one device is plugged in at a time, so both hosts share it.
 Host r36a
-    HostName 192.168.7.1
+    HostName 10.44.44.1
     User ark
 Host r36b
-    HostName 192.168.7.1
+    HostName 10.44.44.1
     User ark
 # after phase 1 (USB Ethernet on the OTG hub) change HostName to the DHCP address or r36a.local

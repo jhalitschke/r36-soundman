@@ -30,13 +30,35 @@ parsing are verified on the host and in CI.
 macOS: Docker Desktop does arm64 without the qemu package. RNDIS needs HoRNDIS there; CDC-ECM works
 natively.
 
-## Phase 0 – SSH over the cable (RNDIS)
+## Phase 0 – SSH over the cable (USB gadget)
 
-1. Handheld: Options -> enable USB Network Mode, USB-C cable to the host.
-2. `scripts/usb-net-host.sh` (puts 192.168.7.2/24 on usb0/enx*).
-3. `ssh ark@192.168.7.1` (password `ark`), then `ssh-copy-id r36a`.
-4. No interface shows up: https://github.com/ctgl1987/arkos-usb-network-mode, option 1 checks whether
-   the board can do device mode at all. A NOT SUPPORTED device becomes the reference device.
+ArkOS has **no USB network entry of its own** - the menu item comes from a script that has to be on
+the card first, and that is the one step the cable cannot do for you. Nothing is installed
+permanently: the gadget runs from RAM and option 5 puts the port back.
+
+1. Handheld off, card into a reader on the host. Of its three partitions the big one is the ROMs
+   partition (`EASYROMS`). Copy `USB Network Mode.sh` from
+   https://github.com/ctgl1987/arkos-usb-network-mode into its `tools/` folder - exFAT mounted with
+   `fmask=0000`, so there is no `chmod` to do. Card back in, boot. `/opt/system` is on the ext4 root
+   and is not the way in here.
+2. **Options -> USB Network Mode -> option 1** first. It only reads, and ends in `SUPPORTED`,
+   `SHOULD WORK, BUT...` or `NOT SUPPORTED`. A NOT SUPPORTED board becomes the reference device
+   (`r36b`): its USB-C data lines never reach the SoC in device mode and no firmware fixes that.
+3. Option 2 (universal). The handheld now runs `g_ether` plus its own dnsmasq and sits on
+   **10.44.44.1** - the device hands out the addresses, so the host only takes DHCP.
+4. Host: `scripts/usb-net-host.sh`. It finds the gadget interface by driver
+   (`rndis_host`/`cdc_ether`/`cdc_ncm`) on the USB bus, takes DHCP from the handheld and pings it.
+   It refuses any interface that is not a USB gadget - matching interface *names* is what used to
+   put the handheld's address on the host's own LAN port, because `ip -o link` prints systemd's
+   `altname enx<mac>` on the same line as the onboard NIC.
+5. `ssh ark@10.44.44.1` (password `ark`), then `ssh-copy-id r36a`.
+
+Use the **OTG** port and a **data** cable. A charge-only cable is by far the most common cause of
+"nothing happens", and looks exactly like an unsupported board until option 1 says otherwise.
+
+Once it works, upstream's `sudo ./setup-linux.sh` is worth running: it pins the gadget to the name
+`arkos0` by udev rule (the kernel otherwise names it after the USB bus path, which changes with the
+port) and stops NetworkManager inventing a fresh "Wired connection N" on every reconnect.
 
 Check: `scripts/inventory.sh r36a` completes and writes `device/r36a/`. `inventory.txt` is only
 written on success (an abort never overwrites a good inventory) and also records: `sudo` behaviour,
