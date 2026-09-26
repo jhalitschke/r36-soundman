@@ -119,9 +119,16 @@ display is only used to verify.
   AV info comes out at 320x240 / 60 fps / 48 kHz, ALSA takes the output, and 1422 frames went out in
   23 s with 14 dropped - the RK3326 holds 60 fps. Opening MIDI fails cleanly with a retry loop
   ("no rawmidi device"), which is correct: there is no MIDI hardware attached, see phase 2.
-- Measured on that run: RetroArch takes a **4096-frame ALSA buffer, 85 ms** at 48 kHz, because
-  `retroarch.cfg` asks for `audio_latency = 128`. Checkpoint 4.1 puts the useful limit around 40 ms,
-  so this is the first knob to turn before judging Track B for live playing.
+- **Audio latency: 85 ms is not the floor, and `audio_latency` is not the knob.** ALSA's `default` on
+  ArkOS is a dmix mixer with `period_size 1024` written into its config, so nothing a client asks for
+  gets below 2048 frames / 42.7 ms. `audio_device = "plughw:0,0"` goes straight to the card:
+  `audio_latency = 16` then gives 768 frames / 16 ms, and 8 ms works too. Below 8 ms it falls apart
+  (2 underruns at 5 ms, 8 at 4, 113 at 2). Between 8 and 16 single underruns wander and do not track
+  the buffer - 16 ms is a margin choice, not a measured optimum. The cost is exclusive use of the
+  card, which costs nothing here since ES is stopped while a core runs.
+  Not yet applied anywhere: measured with `--appendconfig`, the device's `retroarch.cfg` is untouched.
+- All of that was measured on **silence** - no MIDI hardware, so the core emits nothing. Underrun
+  counts are meaningful, "does it sound clean" is not answered.
 - A cross-built .so sits where a host build would, so the core tests check the ELF's architecture and
   skip rather than fail on a dlopen that reports a foreign binary as a missing file.
 - Phase 2 is open and blocked on hardware, not software: USB MIDI and the ALSA sequencer are built

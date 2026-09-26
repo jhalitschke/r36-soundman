@@ -367,9 +367,54 @@ the AV info matches, ALSA accepts the output and the RK3326 keeps 60 fps. The MI
 correct - nothing is attached - and it fails by retrying rather than by dying, which is what lets the
 core be started before the keyboard is plugged in.
 
-The buffer line is the one to act on: 4096 frames at 48 kHz is **85 ms**, because `retroarch.cfg`
-asks for `audio_latency = 128`. Checkpoint 4.1 puts the line for playing live at around 40 ms, so
-turn that down before concluding anything about how Track B feels.
+### The latency floor is in ArkOS's asound.conf, not in the hardware
+
+The first run came out at 4096 frames, **85 ms** at 48 kHz. Turning `audio_latency` down stops
+helping below 32:
+
+    audio_latency   128    64     32     16     8
+    buffer         4096  3072   2048   2048  2048      frames
+                   85.3  64.0   42.7   42.7  42.7      ms
+
+That looks exactly like a hardware limit and is not one. ALSA's `default` on ArkOS is a dmix mixer
+with the period written into the config:
+
+    pcm.!default -> plug -> dmixer
+    pcm.dmixer   -> dmix, slave hw:0,0, period_size 1024, buffer_size 4096, rate 44100
+
+Nothing a client asks for gets under those 1024 frames. Pointing RetroArch at the card instead does:
+
+    audio_device = "plughw:0,0"
+    audio_latency = "12"
+
+    device        latency  buffer  period    ms
+    default            16    2048    1024  42.7
+    plughw:0,0         16     768     192  16.0
+    plughw:0,0          8     384      96   8.0
+    plughw:0,0          4     192      48   4.0
+
+`hw:0,0` works too and is handed S16_LE instead of FLOAT_LE, since the card has no float format and
+`plug` is what converts.
+
+Where it stops working, from 45-second runs counting `snd_pcm_recover` in the log:
+
+    latency    16    12    10     8  |    5     4     2
+    underruns   1     0     1     1  |    2     8   113
+                    (one sample each)|  (14 s runs)
+
+Below 8 ms it comes apart, monotonically and unmistakably. Between 8 and 16 the single underruns move
+around and do not track the buffer size - one sample each is not enough to rank them, and reading an
+order into 0-versus-1 would be inventing a result. **16 ms** is the recommendation on margin rather
+than on measurement: more headroom against scheduling jitter, still a fifth of what dmix imposes and
+well inside the 40 ms the checkpoint cares about.
+
+What this costs: dmix exists so several programs can play at once, and going direct takes the card
+exclusively. That is no loss here - `run.sh` and the ES commands stop EmulationStation anyway, and a
+synth wants the card to itself - but nothing else can make a sound while a core is running.
+
+And what it does **not** prove: every one of these runs was silent, because without MIDI the core
+emits silence. Silence exercises the timing, so an underrun count means something; it says nothing
+about whether the result sounds clean. That needs a keyboard on the port, which is phase 2.
 
 ### The container's Ubuntu is not the question
 
