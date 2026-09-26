@@ -41,6 +41,14 @@ BASE = """<?xml version="1.0"?>
 </systemList>
 """
 
+# What ArkOS actually ships: a command with a bare ampersand, which ES reads
+# without complaint and which is not well-formed XML. Anything that parses the
+# device file strictly falls over on the whole thing.
+BASE_WITH_BARE_AMPERSAND = BASE.replace(
+    "<command>bash %ROM%</command>",
+    "<command>sudo chmod 666 /dev/tty1; %ROM% 2>&1 > /dev/tty1</command>",
+)
+
 BASE_WITHOUT_RETROARCH = BASE.replace(
     "/usr/local/bin/retroarch -L /usr/local/lib/libretro/snes9x_libretro.so %ROM%",
     "bash /opt/start_snes.sh %ROM%",
@@ -89,6 +97,18 @@ class TestMerge(unittest.TestCase):
     def test_fallback_without_retroarch_command(self):
         out = merge(BASE_WITHOUT_RETROARCH)
         self.assertIn("retroarch -L /roms/cores/adl_libretro.so", out)
+
+    def test_a_bare_ampersand_in_the_device_file_is_survived(self):
+        """ArkOS ships "2>&1" in a command; ES shrugs, a strict parser does not."""
+        out = merge(BASE_WITH_BARE_AMPERSAND)
+        self.assertIn("adlib", names(out))
+        # and what comes back out is valid XML, with the ampersand as an entity
+        root = ET.fromstring(out)
+        cmds = [c.text for c in root.iter("command")]
+        self.assertTrue(
+            any("2>&1" in c for c in cmds),
+            "the device's own command was lost or mangled",
+        )
 
     def test_output_is_valid_xml(self):
         root = ET.fromstring(merge(BASE))

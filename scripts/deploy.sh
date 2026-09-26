@@ -12,8 +12,15 @@ rsync -av --exclude src --exclude build --exclude build.sh ports/ "$HOST:/roms/p
 ssh "$HOST" 'chmod +x /roms/ports/*/*.sh'
 
 echo "== cores"
-CORES=$(ssh "$HOST" 'grep ^libretro_directory ~/.config/retroarch/retroarch.cfg | cut -d\" -f2')
-INFO=$(ssh "$HOST" 'grep ^libretro_info_path ~/.config/retroarch/retroarch.cfg | cut -d\" -f2')
+# retroarch.cfg writes these with a tilde, and the path ends up inside the ES
+# command line - where the device's own entries are absolute throughout. Let the
+# remote shell expand it rather than hope ES runs the command through one.
+cfgdir() {
+  ssh "$HOST" "d=\$(grep ^$1 ~/.config/retroarch/retroarch.cfg | cut -d'\"' -f2); eval echo \"\$d\""
+}
+CORES=$(cfgdir libretro_directory)
+INFO=$(cfgdir libretro_info_path)
+echo "-> cores: $CORES"
 for so in cores/*/*_libretro.so; do
   [ -e "$so" ] || continue
   scp "$so" "$HOST:$CORES/"; scp "${so%.so}.info" "$HOST:$INFO/" || true

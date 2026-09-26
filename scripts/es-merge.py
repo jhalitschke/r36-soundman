@@ -17,6 +17,20 @@ script guess a second time.
 """
 import sys, re, xml.etree.ElementTree as ET
 
+
+def parse_lenient(path):
+    """Parse an es_systems.cfg that is not quite XML.
+
+    ArkOS ships one with a bare ampersand in a command ("%ROM% 2>&1 > ..."),
+    which ES reads happily - pugixml shrugs at it - while ElementTree refuses
+    the whole file. Escaping the ampersands that are not already an entity lets
+    it parse, and the merged file then comes back out as valid XML: pugixml
+    turns &amp; back into & when ES reads it, so the command is unchanged.
+    """
+    txt = open(path, encoding="utf-8").read()
+    txt = re.sub(r"&(?!#\d+;|#x[0-9A-Fa-f]+;|[A-Za-z][A-Za-z0-9.-]*;)", "&amp;", txt)
+    return ET.fromstring(txt)
+
 args = sys.argv[1:]
 cores_override = None
 if "--cores" in args:
@@ -25,7 +39,7 @@ if "--cores" in args:
     del args[i:i + 2]
 base, frags = args[0], args[1:]
 
-tree = ET.parse(base); root = tree.getroot()
+root = parse_lenient(base)
 ra, cores, tail = "retroarch", "/roms/cores", "%ROM%"
 best = None
 for cmd in root.iter("command"):
