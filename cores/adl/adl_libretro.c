@@ -1,13 +1,13 @@
 /*
- * adl_libretro – OPL3-Synth als libretro-Core (libADLMIDI).
- * Content: .wopl-Bank (optional, sonst eingebettete Bank).
- * MIDI-In: liest /dev/snd/midiC*D* direkt (ALSA rawmidi, non-blocking) –
- *          unabhängig davon, ob RetroArch mit MIDI-Support gebaut ist.
- *          Override: Umgebungsvariable ADL_MIDI_DEV=/dev/snd/midiC1D0
- * Steuerung: L/R = Program -/+ (Kanal 1), A = Panic, Select+Start = RetroArch-Menü
- * Ausgang:   libADLMIDI laesst ~20 dB Headroom (einzelne Note gemessen bei -33 dBFS,
- *            lautestes Volume-Modell -24 dBFS), darum eine feste Verstaerkung mit
- *            Saettigung. Override: ADL_GAIN=1..64 (Standard 6 = +15,6 dB).
+ * adl_libretro - OPL3 synth as a libretro core (libADLMIDI).
+ * Content: a .wopl bank (optional, embedded bank otherwise).
+ * MIDI in:  reads /dev/snd/midiC*D* directly (ALSA rawmidi, non-blocking) -
+ *           independent of whether RetroArch was built with MIDI support.
+ *           Override: environment variable ADL_MIDI_DEV=/dev/snd/midiC1D0
+ * Controls: L/R = program -/+ (channel 1), A = panic, Select+Start = RetroArch menu
+ * Output:   libADLMIDI leaves ~20 dB of headroom (a single note measured at -33 dBFS,
+ *           the loudest volume model -24 dBFS), hence a fixed gain with saturation.
+ *           Override: ADL_GAIN=1..64 (default 6 = +15.6 dB).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +22,7 @@
 
 #define SR   48000
 #define FPS  60
-#define FRAMES (SR / FPS)          /* 800 Frames pro retro_run */
+#define FRAMES (SR / FPS)          /* 800 frames per retro_run */
 #define W 320
 #define H 240
 
@@ -39,7 +39,7 @@ static int16_t  abuf[FRAMES * 2];
 static int      midi_fd = -1;
 static char     midi_path[256];
 static uint8_t  chan_act[16];
-static int      gain_q8 = 6 * 256;         /* Ausgangsverstaerkung in 8.8, ADL_GAIN */
+static int      gain_q8 = 6 * 256;         /* output gain in 8.8 fixed point, ADL_GAIN */
 static int      program;
 static uint16_t prev_buttons;
 
@@ -61,8 +61,8 @@ static void midi_open(void)
     if (midi_path[0])
         midi_fd = open(midi_path, O_RDONLY | O_NONBLOCK);
     log_cb(RETRO_LOG_INFO, "[adl] MIDI %s -> %s\n",
-           midi_path[0] ? midi_path : "(kein rawmidi-Device)",
-           midi_fd >= 0 ? "offen" : "FEHLER");
+           midi_path[0] ? midi_path : "(no rawmidi device)",
+           midi_fd >= 0 ? "open" : "FAILED");
 }
 
 static void midi_msg(uint8_t st, uint8_t d1, uint8_t d2)
@@ -89,7 +89,7 @@ static void midi_poll(void)
     while ((n = read(midi_fd, buf, sizeof buf)) > 0) {
         for (ssize_t i = 0; i < n; i++) {
             uint8_t b = buf[i];
-            if (b >= 0xF8) continue;                 /* Realtime */
+            if (b >= 0xF8) continue;                 /* realtime */
             if (b & 0x80) {
                 if (b >= 0xF0) { st_byte = 0; continue; } /* SysEx/Common */
                 st_byte = b; st_got = 0;
@@ -100,13 +100,13 @@ static void midi_poll(void)
             st_data[st_got++] = b;
             if (st_got == st_need) {
                 midi_msg(st_byte, st_data[0], st_need == 2 ? st_data[1] : 0);
-                st_got = 0;                         /* Running Status */
+                st_got = 0;                         /* running status */
             }
         }
     }
 }
 
-/* ---- Video ----------------------------------------------------------- */
+/* ---- video ----------------------------------------------------------- */
 static void rect(int x, int y, int w, int h, uint16_t c)
 {
     for (int j = y; j < y + h && j < H; j++)
@@ -117,9 +117,9 @@ static void rect(int x, int y, int w, int h, uint16_t c)
 static void draw(void)
 {
     memset(fb, 0, sizeof fb);
-    rect(8, 8, 8, 8, midi_fd >= 0 ? 0x07E0 : 0xF800);      /* MIDI-Status */
-    rect(24, 8, 2 + program, 8, 0xFFFF);                   /* Program als Balken */
-    for (int ch = 0; ch < 16; ch++) {                      /* Kanal-Aktivität */
+    rect(8, 8, 8, 8, midi_fd >= 0 ? 0x07E0 : 0xF800);      /* MIDI status */
+    rect(24, 8, 2 + program, 8, 0xFFFF);                   /* program as a bar */
+    for (int ch = 0; ch < 16; ch++) {                      /* channel activity */
         int h = chan_act[ch] * 180 / 255;
         rect(8 + ch * 19, 220 - h, 16, h, ch == 9 ? 0xFD20 : 0x3D9F);
         if (chan_act[ch] > 6) chan_act[ch] -= 6; else chan_act[ch] = 0;
@@ -175,18 +175,18 @@ bool retro_load_game(const struct retro_game_info *game)
 
     adl = adl_init(SR);
     if (!adl) return false;
-    adl_switchEmulator(adl, ADLMIDI_EMU_DOSBOX);   /* leichter als Nuked, reicht dem RK3326 */
+    adl_switchEmulator(adl, ADLMIDI_EMU_DOSBOX);   /* lighter than Nuked, enough for the RK3326 */
     adl_setNumChips(adl, 1);
     adl_setSoftPanEnabled(adl, 1);
     if (game && game->path) {
         if (adl_openBankFile(adl, game->path) < 0) {
-            log_cb(RETRO_LOG_ERROR, "[adl] Bank %s: %s\n", game->path, adl_errorInfo(adl));
+            log_cb(RETRO_LOG_ERROR, "[adl] bank %s: %s\n", game->path, adl_errorInfo(adl));
             return false;
         }
-        log_cb(RETRO_LOG_INFO, "[adl] Bank %s\n", game->path);
+        log_cb(RETRO_LOG_INFO, "[adl] bank %s\n", game->path);
     } else {
         adl_setBank(adl, 0);
-        log_cb(RETRO_LOG_INFO, "[adl] eingebettete Bank 0\n");
+        log_cb(RETRO_LOG_INFO, "[adl] embedded bank 0\n");
     }
     const char *g = getenv("ADL_GAIN");
     if (g) {
@@ -234,7 +234,7 @@ void retro_run(void)
     video_cb(fb, W, H, W * sizeof(uint16_t));
 }
 
-/* ---- Stubs ----------------------------------------------------------- */
+/* ---- stubs ----------------------------------------------------------- */
 void retro_set_controller_port_device(unsigned p, unsigned d) { (void)p; (void)d; }
 void retro_reset(void) { if (adl) adl_panic(adl); }
 size_t retro_serialize_size(void) { return 0; }

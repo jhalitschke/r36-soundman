@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ES stoppen, Kommando auf dem Gerät im Vordergrund laufen lassen, ES wieder starten.
+# Stop ES, run a command on the device in the foreground, start ES again.
 # scripts/run.sh r36a 'fluidsynth -i -a alsa -m alsa_seq /roms/synth/x.sf2'
 set -uo pipefail
 HOST=$1; shift

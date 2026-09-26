@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Hörtest ohne Ohren: treibt den gebauten Core und prüft das Audio.
+"""Listening test without ears: drives the built core and checks its audio.
 
-Braucht cores/adl/adl_libretro.so (make -C cores/adl) – fehlt die Datei,
-werden die Tests übersprungen (Lint-Job ohne Build).
+Needs cores/adl/adl_libretro.so (make -C cores/adl) - without it the tests skip
+themselves, so the lint job stays build-free.
 """
 import importlib.util
 import os
-import sys
 import unittest
 from pathlib import Path
 
@@ -16,42 +15,42 @@ SO = ROOT / "cores" / "adl" / "adl_libretro.so"
 
 def _harness():
     spec = importlib.util.spec_from_file_location("adl_harness", ROOT / "scripts" / "adl_harness.py")
-    modul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modul)
-    return modul
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 H = _harness() if SO.exists() else None
 
 
-@unittest.skipUnless(SO.exists(), "cores/adl/adl_libretro.so fehlt – erst 'make -C cores/adl'")
+@unittest.skipUnless(SO.exists(), "cores/adl/adl_libretro.so missing - run 'make -C cores/adl' first")
 class TestCoreAudio(unittest.TestCase):
     def setUp(self):
         os.environ.pop("ADL_GAIN", None)
         self.core = H.Core(SO)
         self.addCleanup(self.core.close)
 
-    def note(self, note=69, programm=81, runs=90):
-        """Note spielen, (rms_vorher, rms_klingend, startframe) zurückgeben."""
-        self.core.program(H.LEAD, programm)
+    def play(self, note=69, program=81, runs=90):
+        """Play a note, return (rms before, rms while sounding, start frame)."""
+        self.core.program(H.LEAD, program)
         self.core.run(6)
-        vorher = H.rms(H.mono(self.core.audio))
+        before = H.rms(H.mono(self.core.audio))
         start = self.core.frames
         self.core.note_on(H.LEAD, note, 110)
         self.core.run(runs)
-        klingend = H.rms(H.mono(self.core.audio, start + H.SR // 50))
-        return vorher, klingend, start
+        sounding = H.rms(H.mono(self.core.audio, start + H.SR // 50))
+        return before, sounding, start
 
-    def test_stille_vor_der_ersten_note(self):
+    def test_silent_before_the_first_note(self):
         self.core.run(6)
-        self.assertLess(H.rms(H.mono(self.core.audio)), 1.0, "Core rauscht ohne Note")
+        self.assertLess(H.rms(H.mono(self.core.audio)), 1.0, "the core hisses without a note")
 
-    def test_note_erzeugt_energie(self):
-        vorher, klingend, _ = self.note()
-        self.assertLess(vorher, 1.0)
-        self.assertGreater(klingend, 200.0, "Note-On erzeugt kaum Pegel")
+    def test_note_produces_energy(self):
+        before, sounding, _ = self.play()
+        self.assertLess(before, 1.0)
+        self.assertGreater(sounding, 200.0, "note-on barely produces a level")
 
-    def test_tonhoehe_stimmt(self):
+    def test_pitch_is_correct(self):
         for note in (60, 69, 72):
             with self.subTest(note=note):
                 core = H.Core(SO)
@@ -61,39 +60,39 @@ class TestCoreAudio(unittest.TestCase):
                 core.note_on(H.LEAD, note, 110)
                 core.run(60)
                 start = H.SR // 4
-                hz = H.grundfrequenz(H.mono(core.audio, start, start + 4096))
-                soll = H.note_hz(note)
-                self.assertAlmostEqual(hz / soll, 1.0, delta=0.01,
-                                       msg="Note %d: %.1f Hz statt %.1f Hz" % (note, hz, soll))
+                hz = H.fundamental(H.mono(core.audio, start, start + 4096))
+                expected = H.note_hz(note)
+                self.assertAlmostEqual(hz / expected, 1.0, delta=0.01,
+                                       msg="note %d: %.1f Hz instead of %.1f Hz" % (note, hz, expected))
 
-    def test_note_off_wird_still(self):
-        _, klingend, _ = self.note()
-        ab = self.core.frames
+    def test_note_off_goes_quiet(self):
+        _, sounding, _ = self.play()
+        after_off = self.core.frames
         self.core.note_off(H.LEAD, 69)
-        self.core.run(45)                                  # 0,75 s Ausklang
-        nachher = H.rms(H.mono(self.core.audio, ab + H.SR // 2))
-        self.assertLess(nachher, klingend * 0.05, "Note-Off klingt nicht aus")
+        self.core.run(45)                                  # 0.75 s of release
+        tail = H.rms(H.mono(self.core.audio, after_off + H.SR // 2))
+        self.assertLess(tail, sounding * 0.05, "note-off does not release")
 
-    def test_panic_macht_still(self):
-        _, klingend, _ = self.note()
-        self.core.taste(H.ID_A)                            # A = adl_panic
-        ab = self.core.frames
+    def test_panic_goes_quiet(self):
+        _, sounding, _ = self.play()
+        self.core.press(H.ID_A)                            # A = adl_panic
+        after = self.core.frames
         self.core.run(30)
-        self.assertLess(H.rms(H.mono(self.core.audio, ab + H.SR // 4)), klingend * 0.05,
-                        "Panic macht nicht still")
+        self.assertLess(H.rms(H.mono(self.core.audio, after + H.SR // 4)), sounding * 0.05,
+                        "panic does not silence the core")
 
-    def test_programmwechsel_per_taste(self):
-        self.core.taste(H.ID_R)
-        self.core.taste(H.ID_L)
+    def test_program_change_by_button(self):
+        self.core.press(H.ID_R)
+        self.core.press(H.ID_L)
         start = self.core.frames
         self.core.note_on(H.LEAD, 69, 110)
         self.core.run(60)
         self.assertGreater(H.rms(H.mono(self.core.audio, start + H.SR // 50)), 200.0,
-                           "nach L/R kommt kein Ton mehr")
+                           "no sound left after L/R")
 
-    def test_gain_wirkt_und_clippt_nicht(self):
-        """ADL_GAIN skaliert linear; eine Einzelnote darf nicht saettigen."""
-        pegel = {}
+    def test_gain_scales_and_does_not_clip(self):
+        """ADL_GAIN scales linearly; a single note must not saturate."""
+        levels = {}
         for gain in ("1", "6"):
             os.environ["ADL_GAIN"] = gain
             core = H.Core(SO)
@@ -102,11 +101,11 @@ class TestCoreAudio(unittest.TestCase):
             core.run(6)
             core.note_on(H.LEAD, 69, 110)
             core.run(60)
-            pegel[gain] = H.peak(core.audio)
-            self.assertEqual(H.clip_anteil(core.audio), 0.0, "Einzelnote clippt bei Gain %s" % gain)
+            levels[gain] = H.peak(core.audio)
+            self.assertEqual(H.clip_ratio(core.audio), 0.0, "a single note clips at gain %s" % gain)
         os.environ.pop("ADL_GAIN", None)
-        self.assertAlmostEqual(pegel["6"] / pegel["1"], 6.0, delta=0.6,
-                               msg="Gain nicht linear: %r" % pegel)
+        self.assertAlmostEqual(levels["6"] / levels["1"], 6.0, delta=0.6,
+                               msg="gain is not linear: %r" % levels)
 
 
 if __name__ == "__main__":

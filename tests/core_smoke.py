@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Smoke-Test für einen gebauten libretro-Core (x86-Compile-Check, kein Gerät nötig).
+"""Smoke test for a built libretro core (x86 compile check, no device needed).
 
     python3 tests/core_smoke.py cores/adl/adl_libretro.so
 
-Prüft: .so lädt, libretro-API-Version, alle Pflichtsymbole exportiert,
-AV-Info entspricht den Konventionen (48 kHz, 60 fps, 320x240) und die
-Angaben in der .info-Datei passen zu denen des Cores.
+Checks: the .so loads, the libretro API version, that every mandatory symbol is
+exported, that the AV info matches the conventions (48 kHz, 60 fps, 320x240) and
+that the .info file agrees with what the core reports.
 """
 import ctypes
 import sys
 from pathlib import Path
 
-PFLICHT = [
+MANDATORY = [
     "retro_api_version", "retro_init", "retro_deinit", "retro_get_system_info",
     "retro_get_system_av_info", "retro_set_environment", "retro_set_video_refresh",
     "retro_set_audio_sample", "retro_set_audio_sample_batch", "retro_set_input_poll",
@@ -42,62 +42,62 @@ class AvInfo(ctypes.Structure):
     _fields_ = [("geometry", Geometry), ("timing", Timing)]
 
 
-def info_datei(so):
-    """<name>_libretro.info neben dem Core als dict."""
-    pfad = so.with_suffix(".info")
-    werte = {}
-    for zeile in pfad.read_text().splitlines():
-        if "=" in zeile:
-            k, _, v = zeile.partition("=")
-            werte[k.strip()] = v.strip().strip('"')
-    return pfad, werte
+def info_file(so):
+    """<name>_libretro.info next to the core, as a dict."""
+    path = so.with_suffix(".info")
+    values = {}
+    for line in path.read_text().splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            values[k.strip()] = v.strip().strip('"')
+    return path, values
 
 
 def main(argv):
     so = Path(argv[1] if len(argv) > 1 else "cores/adl/adl_libretro.so").resolve()
-    fehler = []
+    problems = []
     lib = ctypes.CDLL(str(so))
 
-    for sym in PFLICHT:
+    for sym in MANDATORY:
         if not hasattr(lib, sym):
-            fehler.append("Symbol fehlt: %s" % sym)
+            problems.append("missing symbol: %s" % sym)
 
     lib.retro_api_version.restype = ctypes.c_uint
     version = lib.retro_api_version()
     if version != 1:
-        fehler.append("retro_api_version = %d, erwartet 1" % version)
+        problems.append("retro_api_version = %d, expected 1" % version)
 
     si = SystemInfo()
     lib.retro_get_system_info(ctypes.byref(si))
     av = AvInfo()
     lib.retro_get_system_av_info(ctypes.byref(av))
 
-    # Konventionen aus CLAUDE.md: 48 kHz, 60 fps, 320x240.
-    for name, ist, soll in (("sample_rate", av.timing.sample_rate, 48000.0),
-                            ("fps", av.timing.fps, 60.0),
-                            ("base_width", av.geometry.base_width, 320),
-                            ("base_height", av.geometry.base_height, 240)):
-        if ist != soll:
-            fehler.append("%s = %s, erwartet %s" % (name, ist, soll))
+    # Conventions from CLAUDE.md: 48 kHz, 60 fps, 320x240.
+    for name, actual, expected in (("sample_rate", av.timing.sample_rate, 48000.0),
+                                   ("fps", av.timing.fps, 60.0),
+                                   ("base_width", av.geometry.base_width, 320),
+                                   ("base_height", av.geometry.base_height, 240)):
+        if actual != expected:
+            problems.append("%s = %s, expected %s" % (name, actual, expected))
 
-    pfad, meta = info_datei(so)
+    path, meta = info_file(so)
     name = si.library_name.decode()
     exts = si.valid_extensions.decode()
     if meta.get("corename") != name:
-        fehler.append("%s: corename=%r, Core meldet %r" % (pfad.name, meta.get("corename"), name))
+        problems.append("%s: corename=%r, core reports %r" % (path.name, meta.get("corename"), name))
     if meta.get("supported_extensions") != exts:
-        fehler.append("%s: supported_extensions=%r, Core meldet %r"
-                      % (pfad.name, meta.get("supported_extensions"), exts))
+        problems.append("%s: supported_extensions=%r, core reports %r"
+                        % (path.name, meta.get("supported_extensions"), exts))
     if meta.get("display_version") != si.library_version.decode():
-        fehler.append("%s: display_version=%r, Core meldet %r"
-                      % (pfad.name, meta.get("display_version"), si.library_version.decode()))
+        problems.append("%s: display_version=%r, core reports %r"
+                        % (path.name, meta.get("display_version"), si.library_version.decode()))
 
     print("%s: %s %s, ext=%s, %dx%d @ %g fps, %g Hz, API %d"
           % (so.name, name, si.library_version.decode(), exts, av.geometry.base_width,
              av.geometry.base_height, av.timing.fps, av.timing.sample_rate, version))
-    for f in fehler:
-        print("FEHLER: " + f, file=sys.stderr)
-    return 1 if fehler else 0
+    for problem in problems:
+        print("FAIL: " + problem, file=sys.stderr)
+    return 1 if problems else 0
 
 
 if __name__ == "__main__":

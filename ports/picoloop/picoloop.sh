@@ -7,5 +7,5 @@ export LD_LIBRARY_PATH="$PWD/lib:$LD_LIBRARY_PATH"
 export SDL_VIDEODRIVER=KMSDRM SDL_AUDIODRIVER=alsa
 $GPTOKEYB "picoloop" -c ./keys.gptk &
 ./picoloop > log.txt 2>&1
-# shellcheck disable=SC2046  # pidof kann mehrere PIDs liefern, Splitting ist gewollt
+# shellcheck disable=SC2046  # pidof may return several PIDs, the splitting is intended
 $ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null

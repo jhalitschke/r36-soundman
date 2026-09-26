@@ -1,67 +1,84 @@
 # CLAUDE.md – r36-soundman
 
-Synths, Tracker und MIDI auf dem R36S-Retro-Handheld (RK3326, ArkOS). Ziel: Instrumente stehen in
-EmulationStation gleichwertig neben C64/Amiga – als ES-Systeme (Track A) und als libretro-Cores (Track B).
-Entwicklung läuft komplett vom Host (Ubuntu, alternativ macOS) per SSH; auf dem Gerätedisplay wird nur verifiziert.
+Synths, trackers and MIDI on the R36S handheld (RK3326, ArkOS). Goal: instruments sit next to C64 and
+Amiga in EmulationStation as equals – as ES systems (track A) and as libretro cores (track B).
+Development happens entirely from the host (Ubuntu, macOS as an alternative) over SSH; the handheld
+display is only used to verify.
 
-## Harte Rahmenbedingungen
+## Hard constraints
 
-- **CPU-Limit ist gesetzt.** RK3326 = 4× Cortex-A35 @ ~1,3 GHz. Chip-/FM-Emulation ja, subtraktive VA knapp,
-  DSP-Emulation (gearmulator o.ä.) nein. Keine Engine vorschlagen, die auf einem Raspberry Pi Zero nicht liefe.
-- **YAGNI, ponytail.dev-Leiter:** nötig? schon vorhanden? Stdlib? Plattform-Feature (PortMaster, gptokeyb, ALSA,
-  libretro)? Erst dann eigener Code. Keine Frameworks, keine Abstraktionsschichten "für später".
-  Ein neuer Core ist eine Kopie von `cores/adl/` mit anderer Lib, keine gemeinsame Engine-Abstraktion.
-- **Alles über USB-C-Kabel.** WLAN-Dongles haben nicht funktioniert, internes WLAN ist unzuverlässig.
-  SSH via RNDIS (Bootstrap) oder USB-Ethernet am OTG-Hub (Ziel). Nichts vorschlagen, das WLAN voraussetzt.
-- **Nur ArkOS.** Rocknix/andere CFWs kommen nicht vor. Pfade sind ArkOS-Pfade (`/roms`, `/opt/system/Tools/PortMaster`,
-  `~/.config/retroarch/retroarch.cfg`, `/etc/emulationstation/es_systems.cfg`).
-- **Zwei Geräte:** `r36a` (Bastelgerät) und `r36b` (Referenz, unveränderte Karte). Änderungen zuerst nur auf r36a.
+- **The CPU budget is fixed.** RK3326 = 4x Cortex-A35 @ ~1.3 GHz. Chip/FM emulation yes, subtractive
+  VA barely, DSP emulation (gearmulator and friends) no. Never propose an engine that would not run
+  on a Raspberry Pi Zero.
+- **YAGNI, the ponytail.dev ladder:** needed? already there? stdlib? a platform feature (PortMaster,
+  gptokeyb, ALSA, libretro)? Only then our own code. No frameworks, no abstraction layers "for
+  later". A new core is a copy of `cores/adl/` with a different library, not a shared engine
+  abstraction.
+- **Everything over the USB-C cable.** Wi-Fi dongles did not work, the internal Wi-Fi is unreliable.
+  SSH over RNDIS (bootstrap) or USB Ethernet on the OTG hub (target). Never propose anything that
+  requires Wi-Fi.
+- **ArkOS only.** Rocknix and other CFWs do not come up. Paths are ArkOS paths (`/roms`,
+  `/opt/system/Tools/PortMaster`, `~/.config/retroarch/retroarch.cfg`,
+  `/etc/emulationstation/es_systems.cfg`).
+- **Two devices:** `r36a` (the one we tinker with) and `r36b` (reference, untouched card). Changes go
+  to r36a first.
 
-## Gerätezugriff
+## Device access
 
-- SSH-Hosts `r36a`/`r36b` aus `ssh/config.example`, User `ark`. Vor jeder Arbeit an einem Gerät
-  `scripts/inventory.sh <host>` – die Ergebnisse in `device/<host>/` sind die Wahrheit über Pfade, Kernel-Module,
-  RetroArch-Konfig. Nie Pfade raten, immer aus `device/<host>/inventory.txt` bzw. `es_systems.cfg` ableiten.
-- `device/` ist gitignored (gerätespezifisch). Keine Kopien davon committen.
-- Auf dem Gerät nichts löschen oder überschreiben, was nicht vorher gesichert ist. `deploy.sh` legt
-  `es_systems.cfg.orig` an; andere Systemdateien nur mit `.orig`-Kopie anfassen.
-- Kein `apt upgrade` auf dem Gerät. Einzelne Pakete als arm64-`.deb` passend zu `lsb_release` per `dpkg -i`.
+- SSH hosts `r36a`/`r36b` from `ssh/config.example`, user `ark`. Before working on a device, run
+  `scripts/inventory.sh <host>` – the results in `device/<host>/` are the truth about paths, kernel
+  modules and the RetroArch config. Never guess a path, always derive it from
+  `device/<host>/inventory.txt` or `es_systems.cfg`.
+- `device/` is gitignored (device specific). Do not commit copies of it.
+- Never delete or overwrite anything on the device that has not been backed up first. `deploy.sh`
+  creates `es_systems.cfg.orig`; touch other system files only with an `.orig` copy in place.
+- No `apt upgrade` on the device. Individual packages as arm64 `.deb` matching `lsb_release`, via
+  `dpkg -i`.
 
 ## Build
 
-- Cross-Builds nur im Docker-Container (`docker/Dockerfile`, `scripts/build.sh`), Plattform `linux/arm64`.
-  `UBUNTU` in `scripts/build.sh` muss zur ArkOS-Basis passen (`device/<host>/inventory.txt`, Zeile `lsb_release`).
-- Auf dem Host darf `make -C cores/adl` als reiner Compile-Check laufen (x86), das Ergebnis geht nicht aufs Gerät.
-- Binaries/`.so` sind gitignored. Libs, die das Gerät nicht hat, werden mit dem Port gebündelt (`ports/<name>/lib/`),
-  nicht systemweit installiert.
+- Cross builds only in the Docker container (`docker/Dockerfile`, `scripts/build.sh`), platform
+  `linux/arm64`. `UBUNTU` in `scripts/build.sh` has to match the ArkOS base
+  (`device/<host>/inventory.txt`, the `lsb_release` line).
+- On the host, `make -C cores/adl` may run as a pure compile check (x86); the result does not go to
+  the device.
+- Binaries and `.so` files are gitignored. Libraries the device does not have are bundled with the
+  port (`ports/<name>/lib/`), not installed system wide.
 
-## Konventionen
+## Conventions
 
-- Ports: ein Ordner unter `ports/<name>/`, Startscript nach PortMaster-Muster (`source control.txt`, `get_controls`,
-  `$GPTOKEYB`, Log nach `log.txt` im Port-Ordner, `$ESUDO kill` am Ende). Select+Start beendet immer.
-- ES-Systeme: ein Fragment pro System in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}` als Platzhalter,
-  `scripts/es-merge.py` ersetzt sie aus der Gerätedatei. Neue Systeme nutzen `theme="ports"`, bis Logos existieren.
-- Cores: `cores/<name>/` mit `<name>_libretro.c`, `Makefile`, `<name>_libretro.info`. 48 kHz, 60 fps, 320×240 RGB565,
-  MIDI direkt aus `/dev/snd/midiC*D*` (Override `<NAME>_MIDI_DEV`), kein RetroArch-MIDI-Interface.
-- Shell: `set -euo pipefail` in Host-Scripts; Gerätescripts bleiben `bash` ohne `-e` (PortMaster-Umgebung).
-- Sprache in Doku und Kommentaren: Deutsch. Commit-Messages: Englisch, kurz.
+- Ports: one folder under `ports/<name>/`, launch script following the PortMaster pattern
+  (`source control.txt`, `get_controls`, `$GPTOKEYB`, log to `log.txt` in the port folder, `$ESUDO
+  kill` at the end). Select+Start always quits.
+- ES systems: one fragment per system in `es/systems/<name>.xml`. `{{RA}}`/`{{CORES}}` as
+  placeholders, `scripts/es-merge.py` substitutes them from the device file. New systems use
+  `theme="ports"` until logos exist.
+- Cores: `cores/<name>/` with `<name>_libretro.c`, `Makefile`, `<name>_libretro.info`. 48 kHz,
+  60 fps, 320x240 RGB565, MIDI straight from `/dev/snd/midiC*D*` (override `<NAME>_MIDI_DEV`), no
+  RetroArch MIDI interface.
+- Shell: `set -euo pipefail` in host scripts; device scripts stay `bash` without `-e` (PortMaster
+  environment).
+- Language for docs, comments and commit messages: English. Commit messages short.
 
 ## Status
 
-- Fertig, ungetestet auf Hardware: alle Scripts, ES-Fragmente, Port-Scripts, `cores/adl`.
-- `cores/adl` ist auf x86 gebaut und per Harness (`scripts/adl_harness.py`) geprüft: Bank laden, Noten via FIFO,
-  Tonhöhe, Note-Off → Stille, Pegel. Läuft in CI mit, Demo-WAV als Artefakt.
-- Offen: Makefile-Name im Picoloop-Repo (`ports/picoloop/build.sh` listet Kandidaten), `LGPT_BIN`-Pfad
-  (`ports/lgpt/lgpt.sh`), `gme_libretro.so` arm64 beschaffen (`cores/gme/`), Theme-Logos.
-- Nächste Engines nach `adl`: `opn` (libOPNMIDI, `.wopn`), `mt32` (mt32emu, ROMs in RetroArch `system/`).
+- Done, untested on hardware: all scripts, ES fragments, port scripts, `cores/adl`.
+- `cores/adl` is built on x86 and verified by the harness (`scripts/adl_harness.py`): bank loading,
+  notes via FIFO, pitch, note-off -> silence, levels. Runs in CI, with a demo WAV as an artifact.
+- Open: the makefile name in the picoloop repo (`ports/picoloop/build.sh` lists the candidates), the
+  `LGPT_BIN` path (`ports/lgpt/lgpt.sh`), getting an arm64 `gme_libretro.so` (`cores/gme/`), theme
+  logos.
+- Next engines after `adl`: `opn` (libOPNMIDI, `.wopn`), `mt32` (mt32emu, ROMs in RetroArch's
+  `system/`).
 
-## Reihenfolge (nicht überspringen)
+## Order (do not skip)
 
-1. Phase 0: SSH via RNDIS auf r36a → `inventory.sh r36a`
-2. Phase 1: USB-Ethernet am OTG-Hub, wenn `r8152`/`cdc_ether` laut Inventar vorhanden
-3. Phase 2: `diag.sh r36a 20:0` zeigt MIDI-Noten
-4. Phase 4.1: FluidSynth-System deployen → reale Latenz messen
-5. Phase 4.2/4.3/4.4: GME, Picoloop, LGPT
-6. Phase 5: `build.sh adl` → deploy → `run.sh` mit `retroarch -L … --verbose`
+1. Phase 0: SSH over RNDIS to r36a -> `inventory.sh r36a`
+2. Phase 1: USB Ethernet on the OTG hub, if `r8152`/`cdc_ether` are present according to the inventory
+3. Phase 2: `diag.sh r36a 20:0` shows MIDI notes
+4. Phase 4.1: deploy the FluidSynth system -> measure real latency
+5. Phase 4.2/4.3/4.4: GME, picoloop, LGPT
+6. Phase 5: `build.sh adl` -> deploy -> `run.sh` with `retroarch -L … --verbose`
 
-Details je Phase stehen in `README.md`. Bei Unklarheit über einen Gerätepfad: erst Inventar, dann fragen, nie raten.
+The details per phase are in `README.md`. When a device path is unclear: inventory first, then ask,
+never guess.

@@ -1,4 +1,4 @@
-# arm64: scripts/build.sh adl   (Docker)   |   Host-Check: make
+# arm64: scripts/build.sh adl   (Docker)   |   host check: make
 CC ?= gcc
 ADL := libADLMIDI
 ADL_LIB := $(ADL)/build/libADLMIDI.a

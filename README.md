@@ -1,137 +1,147 @@
 # r36-soundman
 
-Synths, Tracker und MIDI auf dem R36S (ArkOS) – als EmulationStation-Systeme und als libretro-Cores.
-Alles wird vom Host (Ubuntu, alternativ macOS) per SSH gebaut, deployt und getestet.
+[![ci](https://github.com/jhalitschke/r36-soundman/actions/workflows/ci.yml/badge.svg)](https://github.com/jhalitschke/r36-soundman/actions/workflows/ci.yml)
+
+Synths, trackers and MIDI on the R36S handheld (RK3326, ArkOS) – as EmulationStation systems and as
+libretro cores, so instruments sit next to C64 and Amiga in the same carousel. Everything is built,
+deployed and tested from the host (Ubuntu, macOS works too) over SSH; the handheld display is only
+used to verify.
+
+The device side needs hardware, but the libretro core does not: `scripts/adl_harness.py` drives a
+built core without RetroArch and renders its audio to a WAV, so pitch, note-off, levels and MIDI
+parsing are verified on the host and in CI.
 
 ## Layout
 
-    scripts/      Host-Werkzeuge (usb-net-host, inventory, diag, run, build, deploy)
-    ssh/          Beispiel für ~/.ssh/config (r36a, r36b)
-    docker/       arm64-Build-Container
-    es/systems/   ES-System-Fragmente, werden per es-merge.py in die Gerätedatei gemergt
-    ports/        Startscripts nach PortMaster-Muster -> /roms/ports/<name>/
-    cores/        libretro-Cores (adl = OPL3 via libADLMIDI)
-    device/<h>/   pro Gerät: Inventar + Kopien von es_systems.cfg (gitignored)
+    scripts/      host tools (usb-net-host, inventory, diag, run, build, deploy, adl_harness)
+    ssh/          example for ~/.ssh/config (r36a, r36b)
+    docker/       arm64 build container
+    es/systems/   ES system fragments, merged into the device file by es-merge.py
+    ports/        launch scripts following the PortMaster pattern -> /roms/ports/<name>/
+    cores/        libretro cores (adl = OPL3 via libADLMIDI)
+    tests/        hardware-free tests (ES merge, core API, core audio)
+    device/<h>/   per device: inventory + copies of es_systems.cfg (gitignored)
 
-## Einmalig auf dem Host
+## One-time setup on the host
 
     sudo apt install rsync docker.io qemu-user-static binfmt-support   # Ubuntu
     cat ssh/config.example >> ~/.ssh/config
 
-macOS: Docker Desktop kann arm64 ohne qemu-Paket. RNDIS braucht dort HoRNDIS; CDC-ECM geht nativ.
+macOS: Docker Desktop does arm64 without the qemu package. RNDIS needs HoRNDIS there; CDC-ECM works
+natively.
 
-## Phase 0 – Kabel-SSH (RNDIS)
+## Phase 0 – SSH over the cable (RNDIS)
 
-1. Handheld: Options -> USB Network Mode einschalten, USB-C-Kabel an den Host.
-2. `scripts/usb-net-host.sh` (legt 192.168.7.2/24 auf usb0/enx*).
-3. `ssh ark@192.168.7.1` (pw `ark`), dann `ssh-copy-id r36a`.
-4. Taucht kein Interface auf: https://github.com/ctgl1987/arkos-usb-network-mode, Option 1 prüft,
-   ob das Board Device-Mode überhaupt kann. Ein NOT SUPPORTED-Gerät wird Referenzgerät.
+1. Handheld: Options -> enable USB Network Mode, USB-C cable to the host.
+2. `scripts/usb-net-host.sh` (puts 192.168.7.2/24 on usb0/enx*).
+3. `ssh ark@192.168.7.1` (password `ark`), then `ssh-copy-id r36a`.
+4. No interface shows up: https://github.com/ctgl1987/arkos-usb-network-mode, option 1 checks whether
+   the board can do device mode at all. A NOT SUPPORTED device becomes the reference device.
 
-Check: `scripts/inventory.sh r36a` läuft durch und schreibt `device/r36a/`. Die `inventory.txt` entsteht
-erst bei Erfolg (ein Abbruch überschreibt kein gutes Inventar) und enthält zusätzlich: `sudo`-Verhalten,
-ES-systemd-Unit, beide RetroArch-Configs (64/32 bit), welche `es_systems.cfg` wirksam ist und ob
-`r8152`/`cdc_ether` als Modul, einkompiliert (`modules.builtin`) oder geladen (`lsmod`) vorliegen.
+Check: `scripts/inventory.sh r36a` completes and writes `device/r36a/`. `inventory.txt` is only
+written on success (an abort never overwrites a good inventory) and also records: `sudo` behaviour,
+the ES systemd unit, both RetroArch configs (64/32 bit), which `es_systems.cfg` is the effective one,
+and whether `r8152`/`cdc_ether` exist as a module, built in (`modules.builtin`) or loaded (`lsmod`).
 
-## Phase 1 – Host-Mode + USB-Ethernet am OTG-Hub
+## Phase 1 – Host mode + USB Ethernet on the OTG hub
 
-In `device/r36a/inventory.txt` unter `== usb-net treiber` nachsehen: `r8152`/`cdc_ether` als `.ko`,
-in `modules.builtin` oder in `lsmod`?
-Dann RNDIS aus, OTG-Hub mit RTL8152/8153-Adapter dran, Host-Ethernet auf "Shared to other computers",
-`HostName` in `~/.ssh/config` auf die DHCP-IP setzen. Ab jetzt hängen Ethernet, MIDI und Tastatur
-gleichzeitig am Hub.
+Look at `== usb-net drivers` in `device/r36a/inventory.txt`: is `r8152`/`cdc_ether` there as a `.ko`,
+in `modules.builtin` or in `lsmod`? Then turn RNDIS off, attach the OTG hub with an RTL8152/8153
+adapter, set host Ethernet to "Shared to other computers" and point `HostName` in `~/.ssh/config` at
+the DHCP address. From then on Ethernet, MIDI and a keyboard hang off the hub at the same time.
 
-Fallback ohne Treiber: RNDIS zum Deployen, Tests mit `nohup ... > log.txt 2>&1 &`, Gadget
-entladen (Script Option 5), MIDI testen, Gadget wieder laden, Log lesen.
+Fallback without a driver: deploy over RNDIS, run tests with `nohup ... > log.txt 2>&1 &`, unload the
+gadget (script option 5), test MIDI, load the gadget again, read the log.
 
-## Phase 2 – Diagnose
+## Phase 2 – Diagnostics
 
     scripts/diag.sh r36a          # aplay/amidi/aseqdump -l
-    scripts/diag.sh r36a 20:0     # 5 s Events vom Seq-Port dumpen
+    scripts/diag.sh r36a 20:0     # dump 5 s of events from that seq port
 
-Fehlt alsa-utils: arm64-.deb passend zu `lsb_release` von ports.ubuntu.com, `scp`, `sudo dpkg -i`.
-Kein Ton: `amixer cset name='Playback Path' SPK` (bzw. `HP`).
+If alsa-utils is missing: arm64 `.deb` matching `lsb_release` from ports.ubuntu.com, `scp`,
+`sudo dpkg -i`. No sound: `amixer cset name='Playback Path' SPK` (or `HP`).
 
-Check: Noten kommen in `aseqdump` an. Erst dann weiter.
+Check: notes arrive in `aseqdump`. Only then continue.
 
-## Phase 3 – Deploy-Loop
+## Phase 3 – Deploy loop
 
-    scripts/deploy.sh r36a        # ports/ -> /roms/ports, Cores -> libretro_directory, ES-Systeme mergen, ES neu starten
-    scripts/run.sh r36a '<cmd>'   # ES stoppen, Kommando im Vordergrund, ES starten
+    scripts/deploy.sh r36a        # ports/ -> /roms/ports, cores -> libretro_directory, merge ES systems, restart ES
+    scripts/run.sh r36a '<cmd>'   # stop ES, run the command in the foreground, start ES
 
-Das Original der es_systems.cfg liegt danach als `/etc/emulationstation/es_systems.cfg.orig` auf dem Gerät.
-`{{RA}}` und `{{CORES}}` in den Fragmenten werden aus dem ersten RetroArch-Command der Gerätedatei abgeleitet.
+Afterwards the original es_systems.cfg is on the device as
+`/etc/emulationstation/es_systems.cfg.orig`. `{{RA}}` and `{{CORES}}` in the fragments are derived
+from the first RetroArch command in the device file.
 
 ## Phase 4 – Track A (ArkOS/ES)
 
-**4.1 synth (FluidSynth, Kettentest)** – `fluidsynth` + `libfluidsynth` als arm64-.deb installieren,
-`.sf2` nach `/roms/synth/`, deployen. Select+Start beendet. Latenz: `PERIOD`/`COUNT` im Script
-(`-z`/`-c`) so weit runter, bis es knackt – das ist die Untergrenze des Geräts.
+**4.1 synth (FluidSynth, end-to-end test)** – install `fluidsynth` + `libfluidsynth` as arm64 `.deb`,
+put a `.sf2` in `/roms/synth/`, deploy. Select+Start quits. Latency: turn `PERIOD`/`COUNT` in the
+script (`-z`/`-c`) down until it crackles – that is the device's floor.
 
-**4.2 chiptune (GME-Core, nur Config)** – `gme_libretro.so` (arm64: libretro-Buildbot oder Build im
-Container aus libretro/libretro-gme) nach `cores/gme/` legen, `.info` daneben, deployen.
-Content nach `/roms/chiptune/`.
+**4.2 chiptune (GME core, config only)** – put `gme_libretro.so` (arm64: libretro buildbot or build
+libretro/libretro-gme in the container) into `cores/gme/` with its `.info` next to it, deploy.
+Content goes to `/roms/chiptune/`.
 
-**4.3 picoloop** – `scripts/build.sh picoloop`. Vorher in `ports/picoloop/build.sh` das SDL2-Linux-Makefile
-eintragen (Script listet die vorhandenen) und in `Master.h` Twytch/Open303/Cursynth abschalten.
-Erster Start fragt das Audio-Device ab: `default` oder `hw:0`.
+**4.3 picoloop** – `scripts/build.sh picoloop`. First put the SDL2 Linux makefile into
+`ports/picoloop/build.sh` (the script lists the ones it finds) and disable Twytch/Open303/Cursynth in
+`Master.h`. The first start asks for the audio device: `default` or `hw:0`.
 
-**4.4 lgpt** – Port über PortMaster installieren, `LGPT_BIN` in `ports/lgpt/lgpt.sh` anpassen.
-Pro Projektordner unter `/roms/lgpt/` eine leere `song.lgpt`.
+**4.4 lgpt** – install the port through PortMaster, adjust `LGPT_BIN` in `ports/lgpt/lgpt.sh`. One
+empty `song.lgpt` per project folder under `/roms/lgpt/`.
 
-**4.5 Theme** – bis eigene Logos da sind, nutzen alle Systeme `theme="ports"`.
+**4.5 theme** – until there are logos of our own, every system uses `theme="ports"`.
 
-## Phase 5 – Track B (libretro-Core)
+## Phase 5 – Track B (libretro core)
 
     scripts/build.sh adl          # cores/adl/adl_libretro.so (arm64)
     scripts/deploy.sh r36a
     scripts/run.sh r36a 'retroarch -L $(grep ^libretro_directory ~/.config/retroarch/retroarch.cfg | cut -d\" -f2)/adl_libretro.so --verbose'
 
-Der Core liest `/dev/snd/midiC*D*` selbst (Override `ADL_MIDI_DEV`), braucht also kein MIDI-fähiges
-RetroArch. Anzeige: grün/rot = MIDI-Device offen, 16 Balken = Kanalaktivität. L/R = Program, A = Panic.
-Content optional (`.wopl`-Bank nach `/roms/adlib/`), ohne Content eingebettete Bank 0.
-Emulator ist DOSBox-OPL (leichter als Nuked); `adl_switchEmulator` in `adl_libretro.c`.
+The core reads `/dev/snd/midiC*D*` itself (override `ADL_MIDI_DEV`), so it does not need a
+MIDI-capable RetroArch. Display: green/red = MIDI device open, 16 bars = channel activity.
+L/R = program, A = panic. Content is optional (a `.wopl` bank in `/roms/adlib/`), without content it
+uses embedded bank 0. The emulator is DOSBox OPL (lighter than Nuked); see `adl_switchEmulator` in
+`adl_libretro.c`.
 
-Weitere Engines = Kopie von `cores/adl/` mit anderer Lib: libOPNMIDI (`opn2_*`, `.wopn`),
-mt32emu (ROMs nach RetroArch `system/`).
+Further engines are a copy of `cores/adl/` with a different library: libOPNMIDI (`opn2_*`, `.wopn`),
+mt32emu (ROMs into RetroArch's `system/`).
 
 ## Tests & CI
 
-Ohne Gerät prüfbar, gleiche Schritte wie in `.github/workflows/ci.yml`:
+Verifiable without the device, the same steps as in `.github/workflows/ci.yml`:
 
     for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
     shellcheck --severity=warning scripts/*.sh ports/*/*.sh
-    make -C cores/adl                              # x86-Compile-Check (nicht fürs Gerät)
+    make -C cores/adl                              # x86 compile check (not for the device)
     python3 tests/core_smoke.py cores/adl/adl_libretro.so
-    python3 -m unittest discover -s tests          # es-merge.py, ES-Fragmente, Core-Audio
+    python3 -m unittest discover -s tests          # es-merge.py, ES fragments, core audio
 
-`core_smoke.py` lädt die `.so` per ctypes und prüft libretro-API, Pflichtsymbole,
-48 kHz / 60 fps / 320x240 und ob die `.info` zu den Angaben des Cores passt.
-Die Audio-Tests brauchen die gebaute `.so` und werden sonst übersprungen.
-Der arm64-Build (`scripts/build.sh adl`) läuft in CI nur per *Run workflow* – qemu ist zu langsam
-für jeden Push. Jeder CI-Lauf legt `adl-demo.wav` als Artefakt ab: Änderungen am Core sind hörbar,
-nicht nur grün.
+`core_smoke.py` loads the `.so` via ctypes and checks the libretro API, the mandatory symbols,
+48 kHz / 60 fps / 320x240, and whether the `.info` matches what the core reports. The audio tests
+need the built `.so` and skip themselves otherwise. The arm64 build (`scripts/build.sh adl`) only
+runs in CI via *Run workflow* – qemu is too slow for every push. Every CI run uploads
+`adl-demo.wav` as an artifact: a change to the core is audible, not just green.
 
-## Harness: den Core ohne RetroArch hören
+## Harness: hearing the core without RetroArch
 
-`scripts/adl_harness.py` fährt einen gebauten Core selbst – Callbacks per ctypes, MIDI über eine
-FIFO als `ADL_MIDI_DEV`, Audio in eine WAV. Damit sind Bank, MIDI-Parser, Tonhöhe, Note-Off und
-Pegel auf dem Host prüfbar, bevor irgendwas aufs Gerät geht:
+`scripts/adl_harness.py` drives a built core itself – callbacks via ctypes, MIDI through a FIFO as
+`ADL_MIDI_DEV`, audio into a WAV. That makes bank loading, the MIDI parser, pitch, note-off and
+levels testable on the host before anything goes to the device:
 
     make -C cores/adl
-    scripts/adl_harness.py --demo demo.wav        # 6 Takte, 120 bpm, Lead/Bass/Pad/Drums
-    scripts/adl_harness.py --ton 69 a4.wav        # Einzelnote, misst die Grundfrequenz
+    scripts/adl_harness.py --demo demo.wav        # 6 bars, 120 bpm, lead/bass/pad/drums
+    scripts/adl_harness.py --tone 69 a4.wav      # single note, measures the fundamental
 
-Gemessen (DOSBox-Emulator, eingebettete Bank 0, ein Chip): Tonhöhe über vier Oktaven auf 0,1 %
-genau, Note-On bis erstes Sample 2,96 ms (OPL3-Attack; MIDI wird einmal pro `retro_run` gepollt,
-also plus 0–16,7 ms Quantisierung), Demo mit vier Stimmen bei Gain 6 auf -5,9 dBFS ohne Clipping.
+Measured (DOSBox emulator, embedded bank 0, one chip): pitch accurate to 0.1 % across four octaves,
+note-on to first sample 2.96 ms (OPL3 attack; MIDI is polled once per `retro_run`, so add 0–16.7 ms
+of quantization), a four-voice demo at gain 6 peaking at -5.9 dBFS without clipping.
 
-**Pegel:** `adl_generate` liefert rund 20 dB unter Vollaussteuerung (Einzelnote -33 dBFS; auch das
-lauteste der 15 Volume-Modelle von libADLMIDI bringt nur -24 dBFS). Der Core verstärkt darum am
-Ausgang fest mit Sättigung, Standard 6 (+15,6 dB), umstellbar über `ADL_GAIN=1..64`.
+**Levels:** `adl_generate` comes out about 20 dB below full scale (single note at -33 dBFS; even the
+loudest of libADLMIDI's 15 volume models only reaches -24 dBFS). The core therefore applies a fixed
+output gain with saturation, default 6 (+15.6 dB), adjustable via `ADL_GAIN=1..64`.
 
 ## Checkpoints
 
-Phase 0 -> SSH auf beiden Geräten. Phase 2 -> aseqdump zeigt Noten. Phase 4.1 -> reale Latenz bekannt
-(über ~40 ms: Track B nur für Sequencer-Betrieb sinnvoll). Phase 4.3 -> erstes Instrument im Karussell.
-Phase 5 -> erster eigener Core, der Rest ist Kopieren.
+Phase 0 -> SSH on both devices. Phase 2 -> aseqdump shows notes. Phase 4.1 -> real latency known
+(above ~40 ms Track B only makes sense for sequencer use). Phase 4.3 -> first instrument in the
+carousel. Phase 5 -> first core of our own, the rest is copying.

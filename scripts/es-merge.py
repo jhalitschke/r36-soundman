@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""es_systems.cfg vom Gerät + es/systems/*.xml -> gemergte Datei auf stdout.
-Platzhalter in Fragmenten: {{RA}} = RetroArch-Aufruf bis '-L', {{CORES}} = Core-Verzeichnis
-(beides aus dem ersten retroarch-Command der Gerätedatei abgeleitet)."""
+"""es_systems.cfg from the device + es/systems/*.xml -> the merged file on stdout.
+
+Placeholders in the fragments: {{RA}} = the RetroArch invocation up to '-L',
+{{CORES}} = the core directory (both derived from the first retroarch command in
+the device file).
+"""
 import sys, re, xml.etree.ElementTree as ET
 
 base, frags = sys.argv[1], sys.argv[2:]
