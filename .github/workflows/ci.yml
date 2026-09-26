@@ -1,0 +1,75 @@
+# Hardware-free CI: shell lint, ES merge tests and an x86 compile check of the core.
+# The arm64 build (the real deploy artifact) only runs on demand because of qemu.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint + ES merge tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n (host and device scripts)
+        run: |
+          for f in scripts/*.sh ports/*/*.sh; do bash -n "$f"; done
+
+      - name: shellcheck
+        # severity=warning: the info-level notes of the PortMaster scripts (SC1091
+        # on control.txt, SC2012) are part of the pattern, not a defect.
+        run: shellcheck --severity=warning scripts/*.sh ports/*/*.sh
+
+      - name: python syntax
+        run: python3 -m compileall -q scripts tests
+
+      - name: ES merge tests
+        run: python3 -m unittest discover -s tests -v
+
+  core-adl:
+    name: cores/adl (x86 compile check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build libADLMIDI + core
+        run: make -C cores/adl
+
+      - name: core smoke test (API, symbols, AV info, .info)
+        run: python3 tests/core_smoke.py cores/adl/adl_libretro.so
+
+      - name: audio tests (pitch, note-off, panic, gain)
+        run: python3 -m unittest discover -s tests -v
+
+      - name: render the demo
+        run: python3 scripts/adl_harness.py --demo adl-demo.wav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adl-demo-wav
+          path: adl-demo.wav
+
+  core-adl-arm64:
+    name: cores/adl (arm64 in the container)
+    # On demand only: qemu-emulated cmake takes far longer than the x86 check.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - name: scripts/build.sh adl
+        env:
+          UBUNTU: "20.04" # has to match the ArkOS base (device/<host>/inventory.txt)
+        run: scripts/build.sh adl
+
+      - name: the .so is aarch64
+        run: |
+          file cores/adl/adl_libretro.so
+          file cores/adl/adl_libretro.so | grep -q 'ARM aarch64'
