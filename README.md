@@ -321,7 +321,23 @@ come from the fragments' `<path>`, so a new system cannot be forgotten.
 
 **4.1 synth (FluidSynth, end-to-end test)** – `fluidsynth` 1.1.11 is already on the card
 (`/bin/fluidsynth`), so this is only a `.sf2` in `/roms/synth/` plus a deploy. The soundfont is
-content, like a ROM: none ships here.
+content, like a ROM: 148 MB of it, so none ships here. The one used on r36a is FluidR3 by Frank Wen,
+**MIT**, taken from Debian's package so that the licence text travels with it:
+
+    curl -sSLO http://archive.ubuntu.com/ubuntu/pool/universe/f/fluid-soundfont/fluid-soundfont-gm_3.1-6_all.deb
+    dpkg-deb -x fluid-soundfont-gm_3.1-6_all.deb x
+    scp x/usr/share/sounds/sf2/FluidR3_GM.sf2 \
+        x/usr/share/doc/fluid-soundfont-gm/copyright r36a:/roms/synth/
+
+That is 11 seconds over the cable, about 13 MB/s.
+
+**It makes sound.** FluidSynth renders offline with `-F`, so the question can be answered without a
+speaker or a keyboard - `scripts/testtone.py --midi` writes the notes to play:
+
+    ssh r36a 'fluidsynth -ni -F /tmp/scale.wav -r 48000 /roms/synth/FluidR3_GM.sf2 /tmp/scale.mid'
+
+3.36 s, peak -20.1 dBFS, RMS -36 dBFS, 76 % of frames above the noise floor, and the level follows
+the music: chords loud at the front, the scale after, decay at the end.
 
 The port already asks for the card directly (`audio.alsa.device=hw:0`), which is the same lesson the
 cores had to be taught, and `-z`/`-c` default to 256x2 = 512 frames, 10.7 ms. It accepts everything
@@ -344,8 +360,12 @@ redistributes a binary, and `GME_REV` records exactly which source it came from.
 Verified on r36a: it refuses to start without content, and with content it comes up at 320x240 / 60
 fps and takes the low-latency device like ours do. Note it runs at **44100 Hz**, not the 48000 our own
 cores use - it is upstream's core, not one written to our conventions, so `tests/core_smoke.py` is
-not pointed at it. Content goes to `/roms/chiptune/`; a 68-byte VGM of silence, written by hand, is
-enough to prove the path without dragging anyone's game music into the repo.
+not pointed at it. Content goes to `/roms/chiptune/`.
+
+Finding content that may be shipped is the hard part: NSF, VGM and SPC exist almost only as rips of
+commercial game music, and searching turns up OGG and WAV instead. So `scripts/testtone.py --vgm`
+writes one - 215 bytes, a C major scale on the SN76489 and then a chord across its three tone
+channels, straight out of the format spec. gme renders it at **-6.5 dBFS with no clipping**.
 
 **4.3 picoloop** – built, deployed and running on r36a: it comes up with its wavetables, mixers and
 SDL GUI, stays there across 14 threads and exits cleanly. It does **not** open the sound card while
@@ -515,6 +535,24 @@ wearing a different name.
 A cross-built .so lands where a host-side `make` would put one, and `dlopen` reports a foreign
 architecture as "No such file or directory". The core tests therefore read the ELF's `e_machine` and
 skip, rather than erroring about a file that is plainly there.
+
+### The harness runs on the device
+
+`scripts/adl_harness.py` is Python and ctypes and nothing else, so it runs on the handheld itself
+against the aarch64 cores - where until now it could only be pointed at x86 builds on the host. That
+turns "does it sound right" into a measurement on the real hardware:
+
+    scp scripts/adl_harness.py r36a:/tmp/
+    ssh r36a 'python3 /tmp/adl_harness.py --so ~/.config/retroarch/cores/adl_libretro.so --demo /tmp/adl.wav'
+
+Measured on r36a, all three rendered by the device:
+
+    adl  embedded bank, gain 6   peak -5.9 dBFS   RMS 3351   no clipping
+    opn  Doom32x bank, gain 4    peak -3.5 dBFS   RMS 4725   no clipping
+    gme  testtone.py --vgm       peak -6.5 dBFS   RMS 3165   no clipping
+
+The -5.9 dBFS for `adl` is the number this README already quotes from CI on x86. Getting it again off
+the hardware is the strongest thing that could be said for the levels section.
 
 ## Tests & CI
 

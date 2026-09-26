@@ -115,6 +115,15 @@ display is only used to verify.
 - picoloop is built for arm64 with the makefile and key mapping settled
   (`Makefile.PatternPlayer_raspi1_RtAudio_sdl20`, RtAudio on ALSA, `keys.gptk` from `Master.h`).
 - Logos for every system are in `es/theme/logos/`.
+- **All three cores make sound on the device**, measured with `scripts/adl_harness.py` run on the
+  handheld itself - it is ctypes and stdlib, so it loads the aarch64 cores there: adl -5.9 dBFS,
+  opn -3.5, gme -6.5, none clipping. The -5.9 is the same figure CI measures on x86. FluidSynth with
+  FluidR3_GM renders the generated MIDI at -20.1 dBFS.
+- Test content is **generated, not downloaded** (`scripts/testtone.py`): a 215-byte SN76489 scale for
+  gme and a 152-byte MIDI scale for the synth. What gme plays exists almost only as rips of
+  commercial game music, so writing it is the way to have something that may be shipped. The
+  soundfont is the exception and stays content: FluidR3 by Frank Wen, MIT, fetched from Debian's
+  package so the licence travels with it - 148 MB, which is why it is not in the repo.
 - **ES lists adlib, opn and lgpt** on r36a; chiptune and synth stay hidden until someone puts a
   chiptune and a soundfont in their directories, which is content rather than work.
 - Open, and all of it needs hardware someone has to plug in: phase 2 (a MIDI-only, self-powered
